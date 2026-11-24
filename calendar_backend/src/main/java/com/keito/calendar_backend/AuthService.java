@@ -78,8 +78,8 @@ public class AuthService {
         DailyEvent defaultEvent = new DailyEvent(
                 "Welcome to Your Calendar!",
                 "This is your first event. You can edit or delete it.",
-                LocalDateTime.now().plusDays(1).withHour(10).withMinute(0),
-                LocalDateTime.now().plusDays(1).withHour(11).withMinute(0),
+                LocalDateTime.now().withMinute(0).withSecond(0).withNano(0),
+                LocalDateTime.now().addHours(1).withMinute(0).withSecond(0).withNano(0),
                 "Personal",
                 false,
                 false
