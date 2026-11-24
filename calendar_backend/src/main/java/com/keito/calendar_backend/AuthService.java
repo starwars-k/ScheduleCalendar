@@ -80,10 +80,9 @@ public class AuthService {
                 "This is your first event. You can edit or delete it.",
                 LocalDateTime.now().plusDays(1).withHour(10).withMinute(0),
                 LocalDateTime.now().plusDays(1).withHour(11).withMinute(0),
+                "Personal",
                 false,
-                null,
-                null,
-                userId
+                false
         );
         defaultEvent.setUserId(userId);
         defaultEvent.setRepeatType("None");
@@ -105,7 +104,7 @@ public class AuthService {
                 "Uploaded the backend to GitHub and deployed on RENDER",
                 LocalDateTime.of(2026, 8, 20, 21, 0),
                 LocalDateTime.of(2026, 8, 20, 22, 0),
-                "Task",
+                "Personal",
                 false,
                 false
         );
