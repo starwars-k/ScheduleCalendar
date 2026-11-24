@@ -135,6 +135,7 @@ public class EventController {
             }
             repository.deleteByIdAndUserId(id, userId);
         }
+        return ResponseEntity.ok().build();
     }
 
     @PutMapping("/{id}")
