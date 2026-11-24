@@ -1,8 +1,10 @@
 package com.keito.calendar_backend;
+
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonFormat;
+
 @Entity
 @Table(name = "daily_events")
 
@@ -10,6 +12,8 @@ public class DailyEvent {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+    @Column(name = "user_id")
+    private Long userId;
     private String title;
     @JsonProperty("isAllDay")
     private boolean isAllDay;
@@ -42,6 +46,12 @@ public class DailyEvent {
     }
     public void setId(Long id) {
         this.id = id;
+    }
+    public Long getUserId() {
+        return userId;
+    }
+    public void setUserId(Long userId) {
+        this.userId = userId;
     }
     public String getTitle() {
         return title;

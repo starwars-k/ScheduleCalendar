@@ -11,7 +11,10 @@ import java.util.Optional;
 public interface EventRepository extends JpaRepository<DailyEvent, Long> {
     List<DailyEvent> findByUserId(Long userId);
     
-    Optional<DailyEvent> findByIdAndUserId(String id, Long userId);
+    Optional<DailyEvent> findByIdAndUserId(Long id, Long userId);
+
+    @Transactional
+    void deleteByIdAndUserId(Long id, Long userId);
 
     @Transactional
     void deleteBySeriesIdAndStartTimeGreaterThanEqualAndUserId(String seriesId, LocalDateTime startTime, Long userId);
