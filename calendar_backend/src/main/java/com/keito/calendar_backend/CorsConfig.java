@@ -1,4 +1,4 @@
-package com.keito.calendar_backend;
+/*package com.keito.calendar_backend;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,4 +24,4 @@ public class CorsConfig {
             }
         };
     }
-}
+}*/
