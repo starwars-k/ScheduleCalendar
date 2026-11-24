@@ -5,11 +5,11 @@ import org.springframework.beans.factory.annotation.Value;
 
 import javax.crypto.Mac;
 import javax.crypto.SecretKeyFactory;
-import javax.crypto.PBEKeySpec;
+import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.sercurity.SecureRandom;
+import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.Optional;
 
