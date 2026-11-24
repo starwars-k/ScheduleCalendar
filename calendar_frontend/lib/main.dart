@@ -5,13 +5,16 @@ import 'dart:convert';
 import 'package:calendar_frontend/event_model.dart'; // The event model class
 import 'package:intl/intl.dart';
 import 'package:calendar_frontend/EventDetailPage.dart';
+import 'package:calendar_frontend/login_page.dart';
 import 'package:flutter/cupertino.dart'; // For LocalDateTime
 import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
 
+const String kBackendBaseUrl = 'https://calendar-backend-qhny.onrender.com'; // Replace with your backend URL
 final ValueNotifier<bool> globalLoading = ValueNotifier<bool>(false);
 void main() => runApp(
   MaterialApp(
-    home: CalendarPage(),
+    home: const AuthGatePage(),
     builder:(context, child){
       return Stack(
         children: [
@@ -36,10 +39,86 @@ void main() => runApp(
   ),
 );
 
-class CalendarPage extends StatefulWidget {
-  const CalendarPage({super.key});
+class AuthGatePage extends StatefulWidget {
+  const AuthGatePage({super.key});
 
-  // This widget is the root of your application.
+  @override
+  State<AuthGatePage> createState() => _AuthGatePageState();
+}
+
+class _AuthGatePageState extends State<AuthGatePage> {
+  String? _token;
+  String? _username;
+  bool _checkingAuth = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedAuth();
+  }
+
+  Future<void> _loadSavedAuth() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedToken = prefs.getString('auth_token');
+    final savedUsername = prefs.getString('auth_username');
+    if (!mounted) return;
+    setState(() {
+      _token = (savedToken != null && savedToken.isNotEmpty) ? savedToken : null;
+      _username = savedUsername;
+      _checkingAuth = false;
+    });
+  }
+
+  Future<void> _logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('auth_token');
+    await prefs.remove('auth_username');
+    await prefs.remove('auth_userId');
+    if (!mounted) return;
+    setState(() {
+      _token = null;
+      _username = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_checkingAuth) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_token == null) {
+      return LoginPage(
+        backendBaseUri: kBackendBaseUrl,
+        onLoginSuccess: (token, username) {
+          setState(() {
+            _token = token;
+            _username = username;
+          });
+        },
+      );
+    }
+    return CalendarPage(
+      authToken: _token!,
+      username: _username ?? '',
+      onLogout: _logout,
+    );
+  }
+}
+
+class CalendarPage extends StatefulWidget {
+  final String authToken;
+  final String username;
+  final Future<void> Function() onLogout;
+
+  const CalendarPage({
+    super.key,
+    required this.authToken,
+    required this.username,
+    required this.onLogout,
+  });
+
   @override
   State<CalendarPage> createState() => _CalendarPageState();
 }
@@ -47,35 +126,45 @@ class CalendarPage extends StatefulWidget {
 class _CalendarPageState extends State<CalendarPage> {
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _memoController = TextEditingController();
-  //final TextEditingController _searchController = TextEditingController();
-  String _eventType = 'Task'; //Default event type
-  String _repeatType = 'Daily'; // Default repeat type
+  String _eventType = 'Task';
+  String _repeatType = 'Daily';
   DateTime _selectedDay = DateTime.now();
   DateTime _focusedDay = DateTime.now();
-  DateTime _startTime = DateTime.now(); // Default start time at now
+  DateTime _startTime = DateTime.now();
   DateTime _endTime = DateTime.now().add(const Duration(hours: 1));
-  bool _isAllDay = false; // New variable to track if the event is all-day
+  bool _isAllDay = false;
   bool _isRepeating = false;
   bool _endOn = false;
-  //String _searchQuery = '';
   final bool _isSearching = false;
-  DateTime _repeatEndDate = DateTime.now().add(const Duration(days: 1)); // Default repeat end date
+  DateTime _repeatEndDate = DateTime.now().add(const Duration(days: 1));
   CalendarFormat _calendarFormat = CalendarFormat.month;
   List<DailyEvent> _events = [];
+
+  Map<String, String> _authHeaders({bool json = false}) {
+    final headers = <String, String>{
+      'Authorization': 'Bearer ${widget.authToken}',
+    };
+    if (json) {
+      headers['Content-Type'] = 'application/json';
+    }
+    return headers;
+  }
+
   List<DailyEvent> get _selectedEvents {
     final list = _events.where((event) {
       final dayStart = DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day, 0, 0, 0);
       final dayEnd = DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day, 23, 59, 59);
       return event.startTime.isBefore(dayEnd) && event.endTime.isAfter(dayStart);
     }).toList();
-    list.sort((a, b) => a.startTime.compareTo(b.startTime)); // Sort events by start time
+    list.sort((a, b) => a.startTime.compareTo(b.startTime));
     return list;
   }
+
   final List<String> _eventTypes = ['Task', 'Job', 'Class', 'Birthday', 'Personal'];
   final List<String> _repeatOptions = ['Daily', 'Weekly', 'Biweekly', 'Monthly', 'Yearly'];
-  
-  Color _getEventColor(String type){
-    switch(type){
+
+  Color _getEventColor(String type) {
+    switch (type) {
       case 'Task':
         return Colors.blueAccent;
       case 'Job':
@@ -90,37 +179,38 @@ class _CalendarPageState extends State<CalendarPage> {
         return Colors.grey;
     }
   }
+
   @override
   void initState() {
     super.initState();
-    fetchEventsFromJava();// Load datafrom backend immediately
+    fetchEventsFromJava();
   }
 
   Future<bool?> _showAddEventDialog(BuildContext context, DateTime initialDate, {DailyEvent? eventToEdit, String? initialEventType}) async {
     final bool isEditing = eventToEdit != null;
     _titleController.text = isEditing ? eventToEdit.title : '';
-    _isAllDay = isEditing ? eventToEdit.isAllDay : false; // Reset all-day checkbox
-    _startTime = isEditing ? eventToEdit.startTime : DateTime(initialDate.year, initialDate.month, initialDate.day, DateTime.now().hour); // Default start time at current time
-    _endTime = isEditing ? eventToEdit.endTime : _startTime.add(const Duration(hours: 1)); // Default end time
-    _isRepeating = isEditing ? eventToEdit.isRepeating : false; // Reset repeating checkbox
-    _repeatType = isEditing && eventToEdit.repeatType != null ? eventToEdit.repeatType! : 'None'; // Reset repeat type when opening the dialog
-    _repeatOptions.contains(_repeatType) ? _repeatType : 'Daily'; // Reset repeat type to default if not in list
-    _endOn = isEditing ? (eventToEdit.repeatEndOn != null) : false; // Reset end on checkbox
-    if(isEditing && eventToEdit.repeatEndOn != null){
-      _repeatEndDate = eventToEdit.repeatEndOn!; //: initialDate.add(const Duration(days: 1)); // Reset repeat end date
-    }else{
-      _repeatEndDate = initialDate.add(const Duration(days:1));
+    _isAllDay = isEditing ? eventToEdit.isAllDay : false;
+    _startTime = isEditing ? eventToEdit.startTime : DateTime(initialDate.year, initialDate.month, initialDate.day, DateTime.now().hour);
+    _endTime = isEditing ? eventToEdit.endTime : _startTime.add(const Duration(hours: 1));
+    _isRepeating = isEditing ? eventToEdit.isRepeating : false;
+    _repeatType = isEditing && eventToEdit.repeatType != null ? eventToEdit.repeatType! : 'None';
+    _repeatOptions.contains(_repeatType) ? _repeatType : 'Daily';
+    _endOn = isEditing ? (eventToEdit.repeatEndOn != null) : false;
+    if (isEditing && eventToEdit.repeatEndOn != null) {
+      _repeatEndDate = eventToEdit.repeatEndOn!;
+    } else {
+      _repeatEndDate = initialDate.add(const Duration(days: 1));
     }
     _memoController.text = isEditing ? eventToEdit.description : '';
-    _eventType =  initialEventType ?? (isEditing ? eventToEdit.eventType : 'Task'); // Reset event type to default if not in list
+    _eventType = initialEventType ?? (isEditing ? eventToEdit.eventType : 'Task');
 
     final ScrollController modalScrollController = ScrollController();
     return await showModalBottomSheet<bool>(
-      context:context,
+      context: context,
       isScrollControlled: true,
       showDragHandle: false,
       backgroundColor: Colors.white,
-      shape : const RoundedRectangleBorder(
+      shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20.0)),
       ),
       builder: (context) => StatefulBuilder(
@@ -129,14 +219,14 @@ class _CalendarPageState extends State<CalendarPage> {
             bottom: MediaQuery.of(context).viewInsets.bottom,
           ),
           child: SizedBox(
-            height: MediaQuery.of(context).size.height * 0.95, // Set height to 80% of screen height  
+            height: MediaQuery.of(context).size.height * 0.95,
             child: Scaffold(
-              backgroundColor: Colors.transparent, // Make the background transparent
+              backgroundColor: Colors.transparent,
               appBar: AppBar(
-                title: Text(isEditing? "Edit Event" : "Add New Event"),
-                automaticallyImplyLeading: false, // Remove the default back button
-                backgroundColor: Colors.transparent, // Make the AppBar transparent
-                elevation: 0, // Remove shadow
+                title: Text(isEditing ? "Edit Event" : "Add New Event"),
+                automaticallyImplyLeading: false,
+                backgroundColor: Colors.transparent,
+                elevation: 0,
                 actions: [
                   IconButton(
                     icon: const Icon(Icons.close),
@@ -154,14 +244,12 @@ class _CalendarPageState extends State<CalendarPage> {
                   padding: const EdgeInsets.only(bottom: 40.0, left: 20.0, right: 20.0),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
-                    // 1. Event Title Input
                     children: [
                       TextField(
                         controller: _titleController,
                         decoration: const InputDecoration(hintText: "Event Title"),
                       ),
                       const SizedBox(height: 10),
-                      // 2. All-Day Event Checkbox
                       Row(
                         children: [
                           Checkbox(
@@ -182,9 +270,7 @@ class _CalendarPageState extends State<CalendarPage> {
                           const Text("All-Day Event"),
                         ],
                       ),
-                      if(!_isAllDay)...[
-                        // 3. Start Date & Time Picker
-                        //Date Picker
+                      if (!_isAllDay) ...[
                         ListTile(
                           title: const Text("Start Time"),
                           trailing: Wrap(
@@ -193,21 +279,21 @@ class _CalendarPageState extends State<CalendarPage> {
                               TextButton.icon(
                                 label: Text(
                                   DateFormat('yyyy-MM-dd').format(_startTime),
-                                  style: TextStyle(color: Colors.black)
+                                  style: const TextStyle(color: Colors.black),
                                 ),
                                 style: TextButton.styleFrom(
                                   backgroundColor: CupertinoColors.extraLightBackgroundGray,
                                   shape: const StadiumBorder(),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0)
+                                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
                                 ),
-                                onPressed:() async{
+                                onPressed: () async {
                                   final DateTime? pickedDate = await showDatePicker(
                                     context: context,
                                     initialDate: _startTime,
                                     firstDate: DateTime(2000),
                                     lastDate: DateTime(2100),
                                   );
-                                  if(pickedDate != null){
+                                  if (pickedDate != null) {
                                     setDialogState(() {
                                       _startTime = DateTime(
                                         pickedDate.year,
@@ -216,30 +302,25 @@ class _CalendarPageState extends State<CalendarPage> {
                                         _startTime.hour,
                                         _startTime.minute,
                                       );
-                                      if(_endTime.isBefore(_startTime)){
-                                        _endTime = _startTime.add(const Duration(hours:1));
+                                      if (_endTime.isBefore(_startTime)) {
+                                        _endTime = _startTime.add(const Duration(hours: 1));
                                       }
                                     });
                                   }
                                 },
                               ),
-                              //TimePicker
                               TextButton(
-                                child:Text(
-                                  DateFormat('HH:mm').format(_startTime),
-                                  style: TextStyle(color: Colors.black),
-                                ),
                                 style: TextButton.styleFrom(
                                   backgroundColor: CupertinoColors.extraLightBackgroundGray,
                                   shape: const StadiumBorder(),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0)
+                                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
                                 ),
-                                onPressed: () async{
-                                  final TimeOfDay ? pickedTime = await _showAppleStyleTimePicker(
-                                    context:context,
+                                onPressed: () async {
+                                  final TimeOfDay? pickedTime = await _showAppleStyleTimePicker(
+                                    context: context,
                                     initialTime: _startTime,
                                   );
-                                  if(pickedTime != null){
+                                  if (pickedTime != null) {
                                     setDialogState(() {
                                       _startTime = DateTime(
                                         _startTime.year,
@@ -248,19 +329,21 @@ class _CalendarPageState extends State<CalendarPage> {
                                         pickedTime.hour,
                                         pickedTime.minute,
                                       );
-                                      if(_endTime.isBefore(_startTime)){
-                                        _endTime = _startTime.add(const Duration(hours:1));
+                                      if (_endTime.isBefore(_startTime)) {
+                                        _endTime = _startTime.add(const Duration(hours: 1));
                                       }
                                     });
                                   }
                                 },
+                                child: Text(
+                                  DateFormat('HH:mm').format(_startTime),
+                                  style: const TextStyle(color: Colors.black),
+                                ),
                               ),
                             ],
                           ),
                         ),
                         const Divider(height: 1),
-                        // 5. End Date & Time Picker
-                        //Date Picker
                         ListTile(
                           title: const Text("End Time"),
                           trailing: Wrap(
@@ -269,21 +352,21 @@ class _CalendarPageState extends State<CalendarPage> {
                               TextButton.icon(
                                 label: Text(
                                   DateFormat('yyyy-MM-dd').format(_endTime),
-                                  style: TextStyle(color: Colors.black)
+                                  style: const TextStyle(color: Colors.black),
                                 ),
                                 style: TextButton.styleFrom(
                                   backgroundColor: CupertinoColors.extraLightBackgroundGray,
                                   shape: const StadiumBorder(),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0)
+                                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
                                 ),
-                                onPressed:() async{
+                                onPressed: () async {
                                   final DateTime? pickedDate = await showDatePicker(
                                     context: context,
                                     initialDate: _endTime,
                                     firstDate: DateTime(2000),
                                     lastDate: DateTime(2100),
                                   );
-                                  if(pickedDate != null){
+                                  if (pickedDate != null) {
                                     setDialogState(() {
                                       _endTime = DateTime(
                                         pickedDate.year,
@@ -292,30 +375,25 @@ class _CalendarPageState extends State<CalendarPage> {
                                         _endTime.hour,
                                         _endTime.minute,
                                       );
-                                      if(_startTime.isAfter(_endTime)){
-                                        _startTime = _endTime.subtract(const Duration(hours:1));
+                                      if (_startTime.isAfter(_endTime)) {
+                                        _startTime = _endTime.subtract(const Duration(hours: 1));
                                       }
                                     });
                                   }
                                 },
                               ),
-                              //TimePicker
                               TextButton(
-                                child:Text(
-                                  DateFormat('HH:mm').format(_endTime), 
-                                  style: TextStyle(color: Colors.black)
-                                ),
                                 style: TextButton.styleFrom(
                                   backgroundColor: CupertinoColors.extraLightBackgroundGray,
                                   shape: const StadiumBorder(),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0)
+                                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
                                 ),
-                                onPressed: () async{
-                                  final TimeOfDay ? pickedTime = await _showAppleStyleTimePicker(
-                                    context:context,
+                                onPressed: () async {
+                                  final TimeOfDay? pickedTime = await _showAppleStyleTimePicker(
+                                    context: context,
                                     initialTime: _endTime,
                                   );
-                                  if(pickedTime != null){
+                                  if (pickedTime != null) {
                                     setDialogState(() {
                                       _endTime = DateTime(
                                         _endTime.year,
@@ -324,19 +402,22 @@ class _CalendarPageState extends State<CalendarPage> {
                                         pickedTime.hour,
                                         pickedTime.minute,
                                       );
-                                      if(_startTime.isAfter(_endTime)){
-                                        _startTime = _endTime.add(const Duration(hours:1));
+                                      if (_startTime.isAfter(_endTime)) {
+                                        _startTime = _endTime.add(const Duration(hours: 1));
                                       }
                                     });
                                   }
                                 },
+                                child: Text(
+                                  DateFormat('HH:mm').format(_endTime),
+                                  style: const TextStyle(color: Colors.black),
+                                ),
                               ),
                             ],
                           ),
                         ),
                       ],
-                      const Divider(height:1),
-                      // 6. Repeat Event Checkbox
+                      const Divider(height: 1),
                       Row(
                         children: [
                           Checkbox(
@@ -344,9 +425,9 @@ class _CalendarPageState extends State<CalendarPage> {
                             onChanged: (bool? value) {
                               setDialogState(() {
                                 _isRepeating = value ?? false;
-                                if(_isRepeating && _repeatType == 'None'){
+                                if (_isRepeating && _repeatType == 'None') {
                                   _repeatType = 'Daily';
-                                }else if(!_isRepeating){
+                                } else if (!_isRepeating) {
                                   _repeatType = 'None';
                                 }
                               });
@@ -355,29 +436,28 @@ class _CalendarPageState extends State<CalendarPage> {
                           const Text("Repeat this event"),
                         ],
                       ),
-                      // 7. Repeat Type Dropdown (only visible if repeating)
-                      if(_isRepeating) ...[
+                      if (_isRepeating) ...[
                         const SizedBox(height: 10),
                         DropdownButtonFormField<String>(
-                          value: _repeatType == 'None' ? 'Daily' : _repeatType, // Default to 'Daily' if 'None'
+                          initialValue: _repeatType == 'None' ? 'Daily' : _repeatType,
                           decoration: const InputDecoration(
                             labelText: "How often?",
-                            border: OutlineInputBorder()
+                            border: OutlineInputBorder(),
                           ),
-                          items: _repeatOptions.map((option) =>
-                            DropdownMenuItem<String>(
-                              value: option,
-                              child: Text(option),
-                            )).toList(),
+                          items: _repeatOptions
+                              .map((option) => DropdownMenuItem<String>(
+                                    value: option,
+                                    child: Text(option),
+                                  ))
+                              .toList(),
                           onChanged: (value) => setDialogState(() {
                             _repeatType = value!;
                           }),
                         ),
                       ],
-                      // 8. End On Checkbox (only visible if repeating)
-                      if(_isRepeating)...[
+                      if (_isRepeating) ...[
                         Row(
-                          children:[
+                          children: [
                             Checkbox(
                               value: _endOn,
                               onChanged: (bool? value) {
@@ -387,22 +467,21 @@ class _CalendarPageState extends State<CalendarPage> {
                               },
                             ),
                             const Text("Set an end date for repeating"),
-                          ]
+                          ],
                         ),
                       ],
-                      // 9. Repeat End Date Picker (only visible if repeating and endOn is true)
-                      if(_isRepeating && _endOn) ...[
+                      if (_isRepeating && _endOn) ...[
                         TextButton.icon(
                           icon: const Icon(Icons.calendar_today),
                           label: Text("The repeat finishes on: ${DateFormat('yyyy-MM-dd').format(_repeatEndDate)}"),
-                          onPressed: () async{
+                          onPressed: () async {
                             final DateTime? picked = await showDatePicker(
                               context: context,
                               initialDate: _repeatEndDate,
                               firstDate: DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day),
                               lastDate: DateTime(2100),
                             );
-                            if(picked != null){
+                            if (picked != null) {
                               setDialogState(() {
                                 _repeatEndDate = picked;
                               });
@@ -410,27 +489,29 @@ class _CalendarPageState extends State<CalendarPage> {
                           },
                         ),
                       ],
-                      // 10. Memo/ Description Input
                       TextField(
                         controller: _memoController,
                         decoration: const InputDecoration(
                           labelText: "Memo/ Description",
                           prefixIcon: Icon(Icons.note),
                           border: OutlineInputBorder(),
-                        )
+                        ),
                       ),
                       const SizedBox(height: 15),
-                      // 11. Event Type Dropdown
                       DropdownButtonFormField<String>(
                         initialValue: _eventType,
-                        decoration: const InputDecoration(labelText: "Event Type", prefixIcon: Icon(Icons.category), border: OutlineInputBorder()),
-                        items: _eventTypes.map((String type){
+                        decoration: const InputDecoration(
+                          labelText: "Event Type",
+                          prefixIcon: Icon(Icons.category),
+                          border: OutlineInputBorder(),
+                        ),
+                        items: _eventTypes.map((String type) {
                           return DropdownMenuItem<String>(
-                            value: type, 
+                            value: type,
                             child: Text(type),
                           );
                         }).toList(),
-                        onChanged: (String? newValue){
+                        onChanged: (String? newValue) {
                           setDialogState(() {
                             _eventType = newValue!;
                           });
@@ -445,237 +526,161 @@ class _CalendarPageState extends State<CalendarPage> {
                             child: const Text("Cancel"),
                           ),
                           ElevatedButton(
-                            onPressed: () async{
-                              if(_titleController.text.isNotEmpty){
-                                if(isEditing && eventToEdit != null && eventToEdit.id != null){
+                            onPressed: () async {
+                              if (_titleController.text.isNotEmpty) {
+                                if (isEditing && eventToEdit.id != null) {
                                   globalLoading.value = true;
                                   bool success = await _updateEvent(eventToEdit.id!, _startTime, _endTime);
-                                  if(success && context.mounted){
+                                  if (success && context.mounted) {
                                     Navigator.pop(context, true);
                                   }
-                                }else{
+                                } else {
                                   await _makeNewEvents(_startTime, _endTime);
                                 }
-                              }else{
+                              } else {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text("Event title cannot be empty!"))
+                                  const SnackBar(content: Text("Event title cannot be empty!")),
                                 );
                               }
                             },
                             child: Text(isEditing ? "Update" : "Save"),
                           ),
                         ],
-                      )
+                      ),
                     ],
                   ),
                 ),
               ),
-            )
+            ),
           ),
-        )
-      )
-    );
-  }
-
-
-  /*
-  void _showEventDetailDialog(BuildContext context, DailyEvent event){
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(event.title),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text("Memo: ${event.description.isEmpty ? "" : event.description}"),
-            const SizedBox(height: 20),
-            Text("Start Time: ${DateFormat('yyyy-MM-dd HH:mm').format(event.startTime)}"),
-            const SizedBox(height: 20),
-            Text("End Time: ${DateFormat('yyyy-MM-dd HH:mm').format(event.endTime)}"),
-            const SizedBox(height: 20),
-            Text("Type: ${event.eventType}"),
-          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Close"),
-          ),
-          TextButton.icon(
-            icon: const Icon(Icons.delete, color: Colors.red),
-            label: const Text("Delete", style: TextStyle(color: Colors.red)),
-            onPressed: (){
-              if(event.id != null){
-                _deleteEvent(event.id!);
-                Navigator.pop(context);
-              }
-            }
-          )
-        ],
-      )
+      ),
     );
   }
-  */
 
   Future<void> fetchEventsFromJava() async {
-    await showLoadingIfNeeded(()async{
-      try{
-        //final response = await http.get(Uri.parse('http://localhost:8080/api/events')); 
-        final response = await http.get(Uri.parse('https://calendar-backend-qhny.onrender.com/api/events')); // Use the deployed backend URL
+    await showLoadingIfNeeded(() async {
+      try {
+        final response = await http.get(
+          Uri.parse('$kBackendBaseUrl/api/events'),
+          headers: _authHeaders(),
+        );
         if (response.statusCode == 200) {
           List<dynamic> body = jsonDecode(response.body);
-          if(!mounted) return; // Check if the widget is still mounted before calling setState
+          if (!mounted) return;
           setState(() {
             _events = body.map((dynamic item) => DailyEvent.fromJson(item)).cast<DailyEvent>().toList();
           });
+        } else if (response.statusCode == 401) {
+          await widget.onLogout();
+        } else {
+          debugPrint("Failed to load events: ${response.statusCode}");
         }
-      }catch(e){
-        print("FLUTTER ERROR: $e");
+      } catch (e) {
+        debugPrint("FLUTTER ERROR: $e");
       }
     });
   }
 
-  /*
-  Future<void> _sendEventToJava(String title, DateTime pickedDate) async {
-    DateTime endDate = pickedDate.add(const Duration(hours: 1));
-    try{
-      final response = await http.post(
-        Uri.parse('http://localhost:8080/api/events'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'title': title,
-          'description': '',
-          'startTime': pickedDate.toIso8601String(),
-          'endTime': endDate.toIso8601String(),
-          'eventType': 'Default'
-        }),
-      );
-      if(response.statusCode == 200 || response.statusCode == 201){
-        print("Event saved successfully!");
-        fetchEventsFromJava(); // Refresh the event list after adding
-      }else{
-        print("Failed to save event. Status code: ${response.statusCode}");
-      }
-    }catch(e){
-      print("ERROR saving event: $e");
-    }
-  }
-  */
-
-  Future<void> _deleteEvent(int id) async{
+  Future<void> _deleteEvent(int id) async {
     await showLoadingIfNeeded(() async {
-    try{
-      final response = await http.delete(
-        //Uri.parse('http://localhost:8080/api/events/$id'),
-        Uri.parse('https://calendar-backend-qhny.onrender.com/api/events/$id'), // Use the deployed backend URL
-      );
-      if(response.statusCode == 200 || response.statusCode == 201){
-        fetchEventsFromJava(); // Refresh the event list after deleting
-      }else{
-        print("Failed to delete event. Status code: ${response.statusCode}");
+      try {
+        final response = await http.delete(
+          Uri.parse('$kBackendBaseUrl/api/events/$id'),
+          headers: _authHeaders(),
+        );
+        if (response.statusCode == 200 || response.statusCode == 204) {
+          await fetchEventsFromJava();
+        } else {
+          debugPrint("Failed to delete event. Status code: ${response.statusCode}");
+        }
+      } catch (e) {
+        debugPrint("ERROR deleting event: $e");
       }
-    }catch(e){
-      print("ERROR deleting event: $e");
-    }
     });
   }
 
-  String _formatToBackendIso(DateTime dateTime){
+  String _formatToBackendIso(DateTime dateTime) {
     String base = dateTime.toIso8601String().split('.')[0];
-    String ms = (dateTime.millisecond).toString().padLeft(3, '0');// Ensure milliseconds are always 3 digits
+    String ms = (dateTime.millisecond).toString().padLeft(3, '0');
     return '$base.$ms';
   }
 
   Future<void> _makeNewEvents(DateTime startTime, DateTime endTime) async {
     await showLoadingIfNeeded(() async {
-    try{
-      final Map<String, dynamic> eventData ={
-        'title': _titleController.text,
-        'description': _memoController.text,
-        'startTime': _formatToBackendIso(startTime),
-        'endTime': _formatToBackendIso(endTime),
-        'eventType': _eventType,
-        'isAllDay': _isAllDay,
-        'isRepeating': _isRepeating,
-        'repeatType': _isRepeating ? _repeatType : 'None',
-        'endOn': _isRepeating ? _endOn : false,
-        'repeatEndOn': (_isRepeating && _endOn) ? _formatToBackendIso(DateTime(_repeatEndDate.year, _repeatEndDate.month, _repeatEndDate.day, 23, 59, 59)) : null,
-      };
-      //print("Sending event to server: $eventData");
-      final response = await http.post(
-        //Uri.parse('http://localhost:8080/api/events/batch'),
-        Uri.parse('https://calendar-backend-qhny.onrender.com/api/events/'), // Use the deployed backend URL
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(eventData),
-      );
-      if(response.statusCode == 200 || response.statusCode == 201){
-        fetchEventsFromJava(); // Refresh the event list after batch saving
-        Navigator.pop(context);
-      }else{
-        print("Failed to save batch events. Status code: ${response.statusCode}");
-        print("Response body: ${response.body}");
+      try {
+        final Map<String, dynamic> eventData = {
+          'title': _titleController.text,
+          'description': _memoController.text,
+          'startTime': _formatToBackendIso(startTime),
+          'endTime': _formatToBackendIso(endTime),
+          'eventType': _eventType,
+          'isAllDay': _isAllDay,
+          'isRepeating': _isRepeating,
+          'repeatType': _isRepeating ? _repeatType : 'None',
+          'endOn': _isRepeating ? _endOn : false,
+          'repeatEndOn': (_isRepeating && _endOn)
+              ? _formatToBackendIso(DateTime(_repeatEndDate.year, _repeatEndDate.month, _repeatEndDate.day, 23, 59, 59))
+              : null,
+        };
+        final response = await http.post(
+          Uri.parse('$kBackendBaseUrl/api/events/'),
+          headers: _authHeaders(json: true),
+          body: jsonEncode(eventData),
+        );
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          await fetchEventsFromJava();
+          if (mounted) Navigator.pop(context, true);
+        } else {
+          debugPrint("Failed to save event. Status code: ${response.statusCode}");
+          debugPrint("Response body: ${response.body}");
+        }
+      } catch (e) {
+        debugPrint("EXCEPTION caught while saving event: $e");
       }
-    }catch(e){
-      print("EXCEPTION caught while saving batch events: $e");
-    }
     });
   }
 
   Future<bool> _updateEvent(int id, DateTime startTime, DateTime endTime) async {
     bool isSuccess = false;
     await showLoadingIfNeeded(() async {
-    try{
-      final Map<String, dynamic> eventData = {
-        'title': _titleController.text,
-        'description': _memoController.text,
-        'startTime': _formatToBackendIso(startTime),
-        'endTime': _formatToBackendIso(endTime),
-        'eventType': _eventType,
-        'isAllDay': _isAllDay,
-        'isRepeating': _isRepeating,
-        'repeatType': _isRepeating ? _repeatType : 'None',
-        'endOn': _isRepeating ? _endOn : false,
-        'repeatEndOn': (_isRepeating && _endOn) ? _formatToBackendIso(DateTime(_repeatEndDate.year, _repeatEndDate.month, _repeatEndDate.day, 23, 59, 59)) : null,
-      };
-      print("Updating event with ID $id: $eventData");
-      final response = await http.put(
-        //Uri.parse('http://localhost:8080/api/events/$id'),
-        Uri.parse('https://calendar-backend-qhny.onrender.com/api/events/$id'), // Use the deployed backend URL
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(eventData),
-      );
-      if(response.statusCode == 200 || response.statusCode == 204){
-        if(mounted) { // Check if the widget is still mounted before calling setState
-          await fetchEventsFromJava();
+      try {
+        final Map<String, dynamic> eventData = {
+          'title': _titleController.text,
+          'description': _memoController.text,
+          'startTime': _formatToBackendIso(startTime),
+          'endTime': _formatToBackendIso(endTime),
+          'eventType': _eventType,
+          'isAllDay': _isAllDay,
+          'isRepeating': _isRepeating,
+          'repeatType': _isRepeating ? _repeatType : 'None',
+          'endOn': _isRepeating ? _endOn : false,
+          'repeatEndOn': (_isRepeating && _endOn)
+              ? _formatToBackendIso(DateTime(_repeatEndDate.year, _repeatEndDate.month, _repeatEndDate.day, 23, 59, 59))
+              : null,
+        };
+        final response = await http.put(
+          Uri.parse('$kBackendBaseUrl/api/events/$id'),
+          headers: _authHeaders(json: true),
+          body: jsonEncode(eventData),
+        );
+        if (response.statusCode == 200 || response.statusCode == 204) {
+          if (mounted) {
+            await fetchEventsFromJava();
+          }
+          isSuccess = true;
+        } else {
+          debugPrint("Failed to update event. Status code: ${response.statusCode}");
+          isSuccess = false;
         }
-        isSuccess = true;
-      }else{
-        print("Failed to update event. Status code: ${response.statusCode}");
+      } catch (e) {
+        debugPrint("EXCEPTION caught while updating event: $e");
         isSuccess = false;
       }
-    }catch(e){
-      print("EXCEPTION caught while updating event: $e");
-      isSuccess = false;
-    }
     });
     return isSuccess;
   }
-  /*
-  List<DailyEvent> get _filteredEvents{
-    final eventsForDay = _events.where((event){
-      return isSameDay(event.startTime, _selectedDay);
-    }).toList();
-    if(_searchQuery.isEmpty){
-      return eventsForDay;
-    }
-    return eventsForDay.where((event){
-      final titleMatch = event.title.toLowerCase().contains(_searchQuery);
-      return titleMatch;
-    }).toList();
-  }*/
 
-  //iOS style date picker for selecting the repeat end date
   Future<TimeOfDay?> _showAppleStyleTimePicker({
     required BuildContext context,
     required DateTime initialTime,
@@ -688,7 +693,7 @@ class _CalendarPageState extends State<CalendarPage> {
       ),
       builder: (BuildContext builderContext) {
         return Container(
-          height: 900,
+          height: 300,
           color: CupertinoColors.systemBackground.resolveFrom(context),
           child: Column(
             children: [
@@ -706,7 +711,7 @@ class _CalendarPageState extends State<CalendarPage> {
                     onPressed: () {
                       Navigator.of(builderContext).pop(
                         TimeOfDay(hour: selected.hour, minute: selected.minute),
-                      ); 
+                      );
                     },
                   ),
                 ],
@@ -721,7 +726,7 @@ class _CalendarPageState extends State<CalendarPage> {
                     selected = newDateTime;
                   },
                 ),
-              )
+              ),
             ],
           ),
         );
@@ -729,39 +734,44 @@ class _CalendarPageState extends State<CalendarPage> {
     );
   }
 
-  Future<T> showLoadingIfNeeded<T>(Future<T> Function() task) async{
+  Future<T> showLoadingIfNeeded<T>(Future<T> Function() task) async {
     bool isShown = false;
-    Timer timer = Timer(const Duration(milliseconds: 100), (){
+    Timer timer = Timer(const Duration(milliseconds: 100), () {
       isShown = true;
       globalLoading.value = true;
     });
-    
-    try{
+
+    try {
       return await task();
-    }finally{
+    } finally {
       timer.cancel();
-      if(isShown){
+      if (isShown) {
         globalLoading.value = false;
       }
     }
   }
 
+  @override
   Widget build(BuildContext context) {
     String localQuery = '';
     bool isSearchByName = true;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Schedule Calendar'),
+        title: Text(
+          widget.username.isNotEmpty
+              ? 'Schedule Calendar (${widget.username})'
+              : 'Schedule Calendar',
+        ),
         actions: [
           IconButton(
-            icon: Icon(_isSearching ? Icons.close: Icons.search),
-            onPressed: () async{
+            icon: Icon(_isSearching ? Icons.close : Icons.search),
+            onPressed: () async {
               localQuery = '';
               final RenderBox button = context.findRenderObject() as RenderBox;
               final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
               final RelativeRect position = RelativeRect.fromRect(
                 Rect.fromPoints(
-                  button.localToGlobal(Offset.zero, ancestor:overlay),
+                  button.localToGlobal(Offset.zero, ancestor: overlay),
                   button.localToGlobal(button.size.bottomRight(Offset.zero), ancestor: overlay),
                 ),
                 Offset.zero & overlay.size,
@@ -777,12 +787,12 @@ class _CalendarPageState extends State<CalendarPage> {
                     value: 'search',
                     enabled: false,
                     child: StatefulBuilder(
-                      builder:(context, menuSetState){
-                        final suggestions = _events.where((event){
-                          if(localQuery.isEmpty)return false;
-                          if(isSearchByName){
+                      builder: (context, menuSetState) {
+                        final suggestions = _events.where((event) {
+                          if (localQuery.isEmpty) return false;
+                          if (isSearchByName) {
                             return event.title.toLowerCase().startsWith(localQuery.toLowerCase());
-                          }else{
+                          } else {
                             return event.eventType.toLowerCase().startsWith(localQuery.toLowerCase());
                           }
                         }).toList();
@@ -792,74 +802,66 @@ class _CalendarPageState extends State<CalendarPage> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Row(
-                                //Search Box
-                                children:[
-                                  //Text Box
+                                children: [
                                   Expanded(
-                                    child: isSearchByName ? TextField(
-                                      autofocus: true,
-                                      decoration: const InputDecoration(
-                                        hintText: 'Search event by title or type...',
-                                        isDense: true,
-                                        border: OutlineInputBorder(),
-                                      ),
-                                      onChanged: (value){
-                                        menuSetState((){
-                                          localQuery = value;
-                                        });
-                                        /*setState((){
-                                          _searchQuery = value.toLowerCase();
-                                        });*/
-                                      },
-                                    ): DropdownButtonFormField<String>(
-                                      value: localQuery.isEmpty ? null: localQuery,
-                                      decoration: const InputDecoration(
-                                        hintText: 'Select a type',
-                                        isDense: true,
-                                        border: OutlineInputBorder(),
-                                      ),
-                                      items: _eventTypes.map((String typeName){
-                                        return DropdownMenuItem<String>(
-                                          value: typeName,
-                                          child: Text(
-                                            typeName,
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              color: _getEventColor(typeName),
+                                    child: isSearchByName
+                                        ? TextField(
+                                            autofocus: true,
+                                            decoration: const InputDecoration(
+                                              hintText: 'Search event by title or type...',
+                                              isDense: true,
+                                              border: OutlineInputBorder(),
                                             ),
+                                            onChanged: (value) {
+                                              menuSetState(() {
+                                                localQuery = value;
+                                              });
+                                            },
+                                          )
+                                        : DropdownButtonFormField<String>(
+                                            initialValue: localQuery.isEmpty ? null : localQuery,
+                                            decoration: const InputDecoration(
+                                              hintText: 'Select a type',
+                                              isDense: true,
+                                              border: OutlineInputBorder(),
+                                            ),
+                                            items: _eventTypes.map((String typeName) {
+                                              return DropdownMenuItem<String>(
+                                                value: typeName,
+                                                child: Text(
+                                                  typeName,
+                                                  style: TextStyle(
+                                                    fontSize: 14,
+                                                    color: _getEventColor(typeName),
+                                                  ),
+                                                ),
+                                              );
+                                            }).toList(),
+                                            onChanged: (String? newValue) {
+                                              if (newValue != null) {
+                                                menuSetState(() {
+                                                  localQuery = newValue;
+                                                });
+                                              }
+                                            },
                                           ),
-                                        );
-                                      }).toList(),
-                                      onChanged: (String? newValue){
-                                        if(newValue != null){
-                                          menuSetState((){
-                                            localQuery = newValue;
-                                          });
-                                          /*setState((){
-                                            _searchQuery = newValue.toLowerCase();
-                                          });*/
-                                        }
-                                      },
-                                    ),
                                   ),
                                   const SizedBox(width: 8),
-                                  //Radio Button
                                   Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
-                                    children:[
-                                      //1. Title Button
+                                    children: [
                                       Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
                                           SizedBox(
-                                            width:20,
+                                            width: 20,
                                             height: 20,
                                             child: Radio<bool>(
                                               value: true,
                                               groupValue: isSearchByName,
-                                              onChanged: (value){
-                                                if(value != null){
-                                                  menuSetState((){
+                                              onChanged: (value) {
+                                                if (value != null) {
+                                                  menuSetState(() {
                                                     isSearchByName = value;
                                                     localQuery = '';
                                                   });
@@ -868,23 +870,22 @@ class _CalendarPageState extends State<CalendarPage> {
                                             ),
                                           ),
                                           const SizedBox(width: 4),
-                                          const Text('Title', style: TextStyle(fontSize:12, color:Colors.black)),
+                                          const Text('Title', style: TextStyle(fontSize: 12, color: Colors.black)),
                                         ],
                                       ),
-                                      const SizedBox(height:8),
-                                      //2. Type Button
+                                      const SizedBox(height: 8),
                                       Row(
                                         mainAxisSize: MainAxisSize.min,
-                                        children:[
+                                        children: [
                                           SizedBox(
                                             width: 20,
                                             height: 20,
                                             child: Radio<bool>(
                                               value: false,
                                               groupValue: isSearchByName,
-                                              onChanged: (value){
-                                                if(value != null){
-                                                  menuSetState((){
+                                              onChanged: (value) {
+                                                if (value != null) {
+                                                  menuSetState(() {
                                                     isSearchByName = value;
                                                     localQuery = '';
                                                   });
@@ -893,49 +894,22 @@ class _CalendarPageState extends State<CalendarPage> {
                                             ),
                                           ),
                                           const SizedBox(width: 4),
-                                          Text('Type', style: TextStyle(fontSize: 12, color: Colors.black)),
+                                          const Text('Type', style: TextStyle(fontSize: 12, color: Colors.black)),
                                         ],
                                       ),
                                     ],
                                   ),
                                 ],
                               ),
-                              const SizedBox(height:8),
-                              // Search by type
-                              /*
-                              if(!isSearchByName)...[
-                                Divider(height: 1),
-                                Container(
-                                  constraints: const BoxConstraints(maxHeight: 150),
-                                  child: ListView.builder(
-                                    shrinkWrap:true,
-                                    itemCount: _eventTypes.length,
-                                    itemBuilder: (context, index){
-                                      final typeName = _eventTypes[index];
-                                      return ListTile(
-                                        dense: true,
-                                        title: Text(typeName, style: TextStyle(fontSize:13, color: _getEventColor(typeName))),
-                                        onTap: (){
-                                          menuSetState((){
-                                            localQuery = typeName;
-                                          });
-                                          setState((){
-                                            _searchQuery = typeName.toLowerCase();
-                                          });
-                                        },
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ],*/
-                              if(localQuery.isNotEmpty && suggestions.isNotEmpty)...[
+                              const SizedBox(height: 8),
+                              if (localQuery.isNotEmpty && suggestions.isNotEmpty) ...[
                                 const Divider(height: 1),
                                 Container(
                                   constraints: const BoxConstraints(maxHeight: 150),
                                   child: ListView.builder(
                                     shrinkWrap: true,
                                     itemCount: suggestions.length,
-                                    itemBuilder: (context, index){
+                                    itemBuilder: (context, index) {
                                       final event = suggestions[index];
                                       return ListTile(
                                         dense: true,
@@ -949,26 +923,22 @@ class _CalendarPageState extends State<CalendarPage> {
                                                 overflow: TextOverflow.ellipsis,
                                               ),
                                             ),
-                                            const SizedBox(width: 8),                                              
+                                            const SizedBox(width: 8),
                                             Text(
                                               DateFormat('yyyy-MM-dd').format(event.startTime),
-                                              style: const TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.grey,
-                                              ),
+                                              style: const TextStyle(fontSize: 12, color: Colors.grey),
                                             ),
                                           ],
                                         ),
                                         subtitle: Text(
                                           event.eventType,
-                                          style: TextStyle(fontSize: 14, color:_getEventColor(event.eventType)),
+                                          style: TextStyle(fontSize: 14, color: _getEventColor(event.eventType)),
                                         ),
-                                        onTap: (){
+                                        onTap: () {
                                           Navigator.pop(context);
-                                          setState((){
+                                          setState(() {
                                             _selectedDay = event.startTime;
                                             _focusedDay = event.startTime;
-                                            //_searchQuery = event.title.toLowerCase();
                                           });
                                         },
                                       );
@@ -976,15 +946,14 @@ class _CalendarPageState extends State<CalendarPage> {
                                   ),
                                 ),
                               ],
-                              if(localQuery.isNotEmpty && suggestions.isEmpty)...[
+                              if (localQuery.isNotEmpty && suggestions.isEmpty) ...[
                                 const Divider(height: 1),
-                                Container(
-                                  constraints: const BoxConstraints(maxHeight: 150),
-                                  child: Text(
-                                    'Cannot find event',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.black,
+                                const SizedBox(
+                                  height: 40,
+                                  child: Center(
+                                    child: Text(
+                                      'Cannot find event',
+                                      style: TextStyle(fontSize: 12, color: Colors.black),
                                     ),
                                   ),
                                 ),
@@ -999,27 +968,34 @@ class _CalendarPageState extends State<CalendarPage> {
               );
             },
           ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
+            onPressed: () async {
+              await widget.onLogout();
+            },
+          ),
         ],
       ),
       body: Stack(
-        children:[
+        children: [
           Column(
             children: [
               TableCalendar(
-                firstDay: DateTime(2000,1,1),
+                firstDay: DateTime(2000, 1, 1),
                 lastDay: DateTime(2100, 12, 31),
                 focusedDay: _focusedDay,
                 calendarFormat: _calendarFormat,
                 selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-                eventLoader: (day){
-                    final dayStart = DateTime(day.year, day.month, day.day, 0, 0, 0);
-                    final dayEnd = DateTime(day.year, day.month, day.day, 23, 59, 59);
-                    return _events.where((event) => event.startTime.isBefore(dayEnd) && event.endTime.isAfter(dayStart)).toList();
+                eventLoader: (day) {
+                  final dayStart = DateTime(day.year, day.month, day.day, 0, 0, 0);
+                  final dayEnd = DateTime(day.year, day.month, day.day, 23, 59, 59);
+                  return _events.where((event) => event.startTime.isBefore(dayEnd) && event.endTime.isAfter(dayStart)).toList();
                 },
                 onDaySelected: (selectedDay, focusedDay) {
                   setState(() {
                     _selectedDay = selectedDay;
-                    _focusedDay = focusedDay; // update `_focusedDay` here as well
+                    _focusedDay = focusedDay;
                   });
                 },
                 onFormatChanged: (format) {
@@ -1032,7 +1008,7 @@ class _CalendarPageState extends State<CalendarPage> {
                     if (events.isEmpty) return const SizedBox();
                     return Row(
                       mainAxisAlignment: MainAxisAlignment.center,
-                      children: events.take(3).map((event){
+                      children: events.take(3).map((event) {
                         final dailyEvent = event as DailyEvent;
                         return Container(
                           margin: const EdgeInsets.symmetric(horizontal: 0.5),
@@ -1040,7 +1016,7 @@ class _CalendarPageState extends State<CalendarPage> {
                           height: 7,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: _getEventColor(event.eventType),
+                            color: _getEventColor(dailyEvent.eventType),
                           ),
                         );
                       }).toList(),
@@ -1051,15 +1027,15 @@ class _CalendarPageState extends State<CalendarPage> {
                   formatButtonVisible: false,
                   titleCentered: true,
                 ),
-                onHeaderTapped: (focusedDay) async{
+                onHeaderTapped: (focusedDay) async {
                   final DateTime? picked = await showDatePicker(
                     context: context,
                     initialDate: focusedDay,
                     firstDate: DateTime(2000, 1, 1),
                     lastDate: DateTime(2100, 12, 31),
                   );
-                  if(picked != null){
-                    setState((){
+                  if (picked != null) {
+                    setState(() {
                       _focusedDay = picked;
                       _selectedDay = picked;
                     });
@@ -1078,32 +1054,31 @@ class _CalendarPageState extends State<CalendarPage> {
                       title: Text(event.title),
                       subtitle: Text(
                         event.isAllDay
-                          ? "All-Day"
-                          :"${DateFormat('MMM d, HH:mm').format(event.startTime)} - ${DateFormat('MMM d, HH:mm').format(event.endTime)}",
+                            ? "All-Day"
+                            : "${DateFormat('MMM d, HH:mm').format(event.startTime)} - ${DateFormat('MMM d, HH:mm').format(event.endTime)}",
                       ),
                       onTap: () {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) => EventDetailPage(
-                              event: event, 
-                              onDelete: (id) => _deleteEvent(id), 
+                              event: event,
+                              authToken: widget.authToken,
+                              onDelete: (id) => _deleteEvent(id),
                               onUpdate: () => fetchEventsFromJava(),
-                              onEdit:(currentEventType) async{
-                                final bool ? isUpdated = await _showAddEventDialog(
-                                  context, 
-                                  event.startTime, 
-                                  eventToEdit: event, 
-                                  initialEventType: currentEventType,                                 
+                              onEdit: (currentEventType) async {
+                                final bool? isUpdated = await _showAddEventDialog(
+                                  context,
+                                  event.startTime,
+                                  eventToEdit: event,
+                                  initialEventType: currentEventType,
                                 );
-                                if(isUpdated == true){
-                                  if(context.mounted){
-                                    Navigator.pop(context);
-                                  }
+                                if (isUpdated == true && context.mounted) {
+                                  Navigator.pop(context);
                                 }
                               },
                               allEventTypes: _eventTypes,
-                              onEventTypeChanged: (newType){
+                              onEventTypeChanged: (newType) {
                                 setState(() {
                                   _eventType = newType;
                                 });
@@ -1124,10 +1099,10 @@ class _CalendarPageState extends State<CalendarPage> {
             bottom: 30,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children:[
+              children: [
                 FloatingActionButton.extended(
                   onPressed: () {
-                    setState((){
+                    setState(() {
                       _focusedDay = DateTime.now();
                       _selectedDay = DateTime.now();
                     });
@@ -1138,11 +1113,11 @@ class _CalendarPageState extends State<CalendarPage> {
                   foregroundColor: Colors.blue,
                 ),
                 FloatingActionButton(
-                  onPressed: globalLoading.value ? null: () => _showAddEventDialog(context, _selectedDay),
-                  child: const Icon(Icons.add,color: Colors.black),
-                )
-              ]
-            )
+                  onPressed: globalLoading.value ? null : () => _showAddEventDialog(context, _selectedDay),
+                  child: const Icon(Icons.add, color: Colors.black),
+                ),
+              ],
+            ),
           ),
         ],
       ),

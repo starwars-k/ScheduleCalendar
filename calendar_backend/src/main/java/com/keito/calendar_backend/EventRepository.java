@@ -20,4 +20,7 @@ public interface EventRepository extends JpaRepository<DailyEvent, Long> {
     void deleteBySeriesIdAndStartTimeGreaterThanEqualAndUserId(String seriesId, LocalDateTime startTime, Long userId);
 
     List<DailyEvent> findBySeriesIdAndUserId(String seriesId, Long userId);
+
+    @Transactional
+    void deleteByUserIdIsNull();
 }
