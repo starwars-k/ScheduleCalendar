@@ -112,7 +112,7 @@ public class EventController {
     }
 
     @DeleteMapping("/future/{id}")
-    public void deleteFutureEvents(
+    public ResponseEntity<Void> deleteFutureEvents(
         @RequestHeader("Authorization") String authHeader,
         @PathVariable Long id
     ){
@@ -126,7 +126,7 @@ public class EventController {
                 targetEvent.getStartTime(), 
                 userId
             );
-            java.util.List<DailyEvent> remainingEvents = repository.findBySeriesId(seriesId);
+            java.util.List<DailyEvent> remainingEvents = repository.findBySeriesIdAndUserId(seriesId, userId);
             if(remainingEvents.size() >= 1){
                 DailyEvent lastEvent = remainingEvents.get(remainingEvents.size() - 1);
                 lastEvent.setIsRepeating(false);
