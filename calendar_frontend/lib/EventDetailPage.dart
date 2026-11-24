@@ -10,6 +10,7 @@ final ValueNotifier<bool> globalLoading = ValueNotifier<bool>(false);
 
 class EventDetailPage extends StatefulWidget {
   final DailyEvent event;
+  final String authToken;
   final Function() onUpdate;
   final Function(int) onDelete;
   final Function(String) onEdit;
@@ -19,6 +20,7 @@ class EventDetailPage extends StatefulWidget {
   const EventDetailPage({
     super.key, 
     required this.event, 
+    required this.authToken,
     required this.onDelete,
     required this.onUpdate,
     required this.onEdit,
@@ -34,6 +36,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
   //late TextEditingController _titleController;
   //late TextEditingController _memoController;
   late String _eventType;
+  bool _isUpdatedFromOutSide = false;
   //late DateTime _startTime;
   //late DateTime _endTime;
   //late bool _isAllDay;
@@ -41,6 +44,16 @@ class _EventDetailPageState extends State<EventDetailPage> {
   //String _repeatType = 'None';
   //DateTime _repeatEndDate = DateTime.now();
   //bool _endOn = false;
+  static const String _baseUrl = 'https://calendar-backend-qhny.onrender.com';
+  Map<String, String> _headers({bool json = false}) {
+    final headers = <String, String>{
+      'Authorization': 'Bearer ${widget.authToken}',
+    };
+    if (json) {
+      headers['Content-Type'] = 'application/json';
+    }
+    return headers;
+  }
 
   //final List<String> _eventTypes = ["Task", "Job", "Class", "Birthday", "Personal"];
   @override
@@ -157,7 +170,8 @@ class _EventDetailPageState extends State<EventDetailPage> {
     try{
       final response = await http.delete(
         //Uri.parse('http://localhost:8080/api/events/${widget.event.id}'),
-        Uri.parse('https://calendar-backend-qhny.onrender.com/api/events/${widget.event.id}'), // Use the deployed backend URL
+        Uri.parse('$_baseUrl/api/events/${widget.event.id}'), // Use the deployed backend URL
+        headers: _headers(),
       );
       if (response.statusCode == 200 || response.statusCode == 204) {
         widget.onDelete(widget.event.id!);
@@ -174,7 +188,8 @@ class _EventDetailPageState extends State<EventDetailPage> {
     try{
       final response = await http.delete(
         //Uri.parse('http://localhost:8080/api/events/${widget.event.id}'),
-        Uri.parse('https://calendar-backend-qhny.onrender.com/api/events/future/${widget.event.id}'), // Use the deployed backend URL
+        Uri.parse('$_baseUrl/api/events/future/${widget.event.id}'), // Use the deployed backend URL
+        headers: _headers(),
       );
       if (response.statusCode == 200 || response.statusCode == 204) {
         widget.onDelete(widget.event.id!);
@@ -259,8 +274,8 @@ class _EventDetailPageState extends State<EventDetailPage> {
           'repeatEndOn': widget.event.repeatEndOn?.toIso8601String(),
         };
         final response = await http.put(
-          Uri.parse('https://calendar-backend-qhny.onrender.com/api/events/${widget.event.id}'),
-          headers: {'Content-Type': 'application/json'},
+          Uri.parse('$_baseUrl/api/events/${widget.event.id}'),
+          headers: _headers(json: true),
           body: jsonEncode(eventData),
         );
         if(response.statusCode == 200 || response.statusCode == 204){
@@ -290,7 +305,6 @@ class _EventDetailPageState extends State<EventDetailPage> {
     }
   }
 
-  bool _isUpdatedFromOutSide = false;
   Future<void> _saveOnExit() async {/*
     if(_isUpdatedFromOutSide) return;
     await showLoadingIfNeeded(() async {
@@ -308,7 +322,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
           'repeatEndOn': widget.event.repeatEndOn?.toIso8601String(),
         };
         final response = await http.put(
-          Uri.parse('https://calendar-backend-qhny.onrender.com/api/events/${widget.event.id}'),
+          Uri.parse('${LoginPage._baseUrl}/api/events/${widget.event.id}'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode(eventData),
         );

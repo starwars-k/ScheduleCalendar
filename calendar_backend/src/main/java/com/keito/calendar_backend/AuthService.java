@@ -2,6 +2,9 @@ package com.keito.calendar_backend;
 
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.keito.calendar_backend.DailyEvent;
 
 import javax.crypto.Mac;
 import javax.crypto.SecretKeyFactory;
@@ -11,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -20,9 +24,11 @@ public class AuthService {
 
     public AuthService(
         UserRepository userRepository,
+        EventRepository eventRepository,
         @Value("${app.auth.secret:change-this-secret-key-in-render-env}") String secretKey
     ){
         this.userRepository = userRepository;
+        this.eventRepository = eventRepository;
         this.secretKey = secretKey;
     }
 
@@ -56,6 +62,7 @@ public class AuthService {
         return skf.generateSecret(spec).getEncoded();
     }
 
+    @Transactional
     public User register(String username, String rawPassword) {
         String normalizedUsername = username.trim().toLowerCase();
         if (userRepository.existsByUsername(normalizedUsername)) {
@@ -63,6 +70,47 @@ public class AuthService {
         }
         User user = new User(normalizedUsername, hashPassword(rawPassword));
         return userRepository.save(user);
+    }
+
+    public void seedDefaultEventsForUser(Long userId) {
+        DailyEvent defaultEvent = new DailyEvent(
+                "Welcome to Your Calendar!",
+                "This is your first event. You can edit or delete it.",
+                LocalDateTime.now().plusDays(1).withHour(10).withMinute(0),
+                LocalDateTime.now().plusDays(1).withHour(11).withMinute(0),
+                false,
+                null,
+                null,
+                userId
+        );
+        defaultEvent.setUserId(userId);
+        defaultEvent.setRepeatType("None");
+
+        DailyEvent projectStart = new DailyEvent(
+                "Project Start",
+                "Started developing the Schedule Calendar App",
+                LocalDateTime.of(2026, 3, 29, 21, 0),
+                LocalDateTime.of(2026, 3, 29, 22, 0),
+                "Personal",
+                false,
+                false
+        );
+        projectStart.setUserId(userId);
+        projectStart.setRepeatType("None");
+
+        DailyEvent backendUpload = new DailyEvent(
+                "Backend Upload on GitHub and RENDER",
+                "Uploaded the backend to GitHub and deployed on RENDER",
+                LocalDateTime.of(2026, 8, 20, 21, 0),
+                LocalDateTime.of(2026, 8, 20, 22, 0),
+                "Task",
+                false,
+                false
+        );
+        backendUpload.setUserId(userId);
+        backendUpload.setRepeatType("None");
+
+        eventRepository.saveAll(List.of(projectStart, defaultEvent, backendUpload));
     }
 
     public Optional<User> authenticate(String username, String rawPassword) {
