@@ -1,7 +1,10 @@
 package com.keito.calendar_backend;
-import org.springframework.http.ResponseEntity;
 
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -11,18 +14,36 @@ import java.util.UUID;
 @RequestMapping("/api/events")
 public class EventController {
     private final EventRepository repository;
+    private final AuthService authService;
 
-    public EventController(EventRepository repository) {
+    public EventController(EventRepository repository, AuthService authService) {
         this.repository = repository;
+        this.authService = authService;
+    }
+
+    private Long requireUserId(String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing or invalid Authorization header");
+        }
+        String token = authHeader.substring(7).trim();
+        return authService.parseUserIdFromToken(token)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid or expired token"));
     }
 
     @GetMapping
-    public List<DailyEvent> getAllEvents() {
-        return repository.findAll();
+    public List<DailyEvent> getAllEvents(@RequestHeader("Authorization") String authHeader) {
+        Long userId = requireUserId(authHeader); // Replace null with the actual Authorization header if needed
+        return repository.findByUserId(userId);
     }
 
     @PostMapping({"", "/"})
-    public ResponseEntity<Void> createEvent(@RequestBody DailyEvent event) {
+    public ResponseEntity<Void> createEvent(
+        @RequestHeader("Authorization") String authHeader, 
+        @RequestBody DailyEvent event
+    ) {
+        Long userId = requireUserId(authHeader);
+        event.setUserId(userId);
+
         //List<DailyEvent> eventsToSave = new ArrayList<>();
         if(!event.getIsRepeating() || event.getRepeatType() == null){
             //eventsToSave.add(repository.save(event));
@@ -50,6 +71,7 @@ public class EventController {
                 event.getIsAllDay(),
                 true
             );
+            repeatedEvent.setUserId(userId);
             repeatedEvent.setRepeatType(repeatType);
             repeatedEvent.setSeriesId(seriesId);
             repeatedEvent.setRepeatEndOn(repeatEndDate);
@@ -81,19 +103,28 @@ public class EventController {
     }
         
     @DeleteMapping("/{id}")
-    public void deleteEvent(@PathVariable Long id){
-        repository.deleteById(id);
+    public void deleteEvent(
+        @RequestHeader("Authorization") String authHeader,
+        @PathVariable Long id
+    ){
+        Long userId = requireUserId(authHeader);
+        repository.deleteByIdAndUserId(id, userId);
     }
 
     @DeleteMapping("/future/{id}")
-    public void deleteFutureEvents(@PathVariable Long id){
-        DailyEvent targetEvent = repository.findById(id).orElse(null);
-        if(targetEvent == null) return;
+    public void deleteFutureEvents(
+        @RequestHeader("Authorization") String authHeader,
+        @PathVariable Long id
+    ){
+        Long userId = requireUserId(authHeader);
+        DailyEvent targetEvent = repository.findByIdAndUserId(id, userId).orElse(null);
+        if(targetEvent == null) return ResponseEntity.notFound().build();
         if(targetEvent.getSeriesId() != null && !targetEvent.getSeriesId().isEmpty()){
             String seriesId = targetEvent.getSeriesId();
-            repository.deleteBySeriesIdAndStartTimeGreaterThanEqual(
+            repository.deleteBySeriesIdAndStartTimeGreaterThanEqualAndUserId(
                 seriesId, 
-                targetEvent.getStartTime()
+                targetEvent.getStartTime(), 
+                userId
             );
             java.util.List<DailyEvent> remainingEvents = repository.findBySeriesId(seriesId);
             if(remainingEvents.size() >= 1){
@@ -102,13 +133,18 @@ public class EventController {
                 lastEvent.setRepeatType(null);
                 repository.save(lastEvent);
             }
-            repository.deleteById(id);
+            repository.deleteByIdAndUserId(id, userId);
         }
     }
 
     @PutMapping("/{id}")
-    public List<DailyEvent> updateEvent(@PathVariable Long id, @RequestBody DailyEvent updatedEvent){
-        DailyEvent existingEvent = repository.findById(id).orElse(null);
+    public List<DailyEvent> updateEvent(
+        @RequestHeader("Authorization") String authHeader,
+        @PathVariable Long id,
+        @RequestBody DailyEvent updatedEvent
+    ){
+        Long userId = requireUserId(authHeader);
+        DailyEvent existingEvent = repository.findByIdAndUserId(id, userId).orElse(null);
         List<DailyEvent> eventsToSave = new ArrayList<>();
         if(existingEvent == null){
             updatedEvent.setId(id);
@@ -116,12 +152,13 @@ public class EventController {
             return eventsToSave;
         }
         if(existingEvent.getSeriesId() != null && !existingEvent.getSeriesId().isEmpty()){
-            repository.deleteBySeriesIdAndStartTimeGreaterThanEqual(
+            repository.deleteBySeriesIdAndStartTimeGreaterThanEqualAndUserId(
                 existingEvent.getSeriesId(),
-                existingEvent.getStartTime()
+                existingEvent.getStartTime(),
+                userId
             );
         }else{
-            repository.deleteById(id);
+            repository.deleteByIdAndUserId(id, userId);
         }
         if(!updatedEvent.getIsRepeating() || updatedEvent.getRepeatType() == null){
             updatedEvent.setId(null);
@@ -178,7 +215,14 @@ public class EventController {
     }
 
     @PostMapping("/batch")
-    public List<DailyEvent> createEvents(@RequestBody List<DailyEvent> events) {
+    public List<DailyEvent> createEvents(
+        @RequestHeader("Authorization") String authHeader,
+        @RequestBody List<DailyEvent> events
+    ) {
+        Long userId = requireUserId(authHeader);
+        for (DailyEvent event : events) {
+            event.setUserId(userId);
+        }
         return repository.saveAll(events);
     }
 }
