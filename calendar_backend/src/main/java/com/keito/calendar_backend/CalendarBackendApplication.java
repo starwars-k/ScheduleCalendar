@@ -15,7 +15,7 @@ public class CalendarBackendApplication {
 	@Bean
 	CommandLineRunner initDatabase(
 		UserRepository userRepository,
-		EventRepository repository,
+		EventRepository eventRepository,
 		AuthService authService
 	) {
 		return args -> {
