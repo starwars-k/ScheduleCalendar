@@ -5,8 +5,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
-import main.java.com.keito.calendar_backend.AuthService;
-
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -204,7 +202,7 @@ public class EventController {
         ZoneId eventZone = resolveZoneId(updatedEvent.getEventTimezone(), userDefaultZone);
         boolean shouldRepeat = Boolean.TRUE.equals(updatedEvent.getIsRepeating())
             && updatedEvent.getRepeatType() != null
-            && !updatedEvent.getRepeatedType().equals("None");
+            && !updatedEvent.getRepeatType().equals("None");
 
         existing.setTitle(updatedEvent.getTitle());
         existing.setDescription(updatedEvent.getDescription());
@@ -220,7 +218,7 @@ public class EventController {
 
         if(!shouldRepeat){
             existing.setSeriesId(null);
-            DailyEvent saved = eventRespository.save(existing);
+            DailyEvent saved = eventRepository.save(existing);
             return ResponseEntity.ok(saved);
         }
         if(existing.getSeriesId() == null || existing.getSeriesId().isBlank()){
