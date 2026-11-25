@@ -59,7 +59,7 @@ public class AuthController {
 
         Optional<User> userOpt = authService.authenticate(username, password);
         if (userOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Invalid username or password"));
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "username or password is wrong"));
         }
 
         User user = userOpt.get();
