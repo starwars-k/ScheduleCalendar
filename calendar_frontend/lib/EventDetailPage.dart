@@ -33,17 +33,8 @@ class EventDetailPage extends StatefulWidget {
 }
 
 class _EventDetailPageState extends State<EventDetailPage> {
-  //late TextEditingController _titleController;
-  //late TextEditingController _memoController;
   late String _eventType;
   bool _isUpdatedFromOutSide = false;
-  //late DateTime _startTime;
-  //late DateTime _endTime;
-  //late bool _isAllDay;
-  //bool _isRepeating = false;
-  //String _repeatType = 'None';
-  //DateTime _repeatEndDate = DateTime.now();
-  //bool _endOn = false;
   static const String _baseUrl = 'https://calendar-backend-qhny.onrender.com';
   Map<String, String> _headers({bool json = false}) {
     final headers = <String, String>{
@@ -60,111 +51,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
   void initState() {
     super.initState();
     _eventType = widget.event.eventType;
-    /*
-    //_titleController = TextEditingController(text: widget.event.title);
-    //_memoController = TextEditingController(text: widget.event.description);
-    //_isAllDay = widget.event.isAllDay;
-    if(widget.event.repeatType != null && widget.event.repeatType != 'None'){
-      _eventType = widget.event.eventType;
-      //_isRepeating = true;
-      //_repeatType = widget.event.repeatType!;
-    } else {
-      //_eventType = widget.eventTypes.first;
-      //_isRepeating = false;
-      //_repeatType = 'None';
-    }
-    //_startTime = widget.event.startTime;
-    //_endTime = widget.event.endTime;
-    */
   }
-  /*
-  Future<void> _updateEvent() async {
-    final response = await http.put(
-      //Uri.parse('http://localhost:8080/api/events/${widget.event.id}'),
-      Uri.parse('https://calendar-backend-qhny.onrender.com/api/events/${widget.event.id}'), // Use the deployed backend URL
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'title': _titleController.text,
-        'description': _memoController.text,
-        'eventType': _eventType,
-        'startTime': _startTime.toIso8601String(),
-        'endTime': _endTime.toIso8601String(),
-        'isAllDay': _isAllDay,
-      }),
-    );
-    if (response.statusCode == 200) {
-      widget.onUpdate();
-      Navigator.pop(context);
-    } 
-  }*/
-
-  /*
-  Future<void> _manualSave() async{
-    if(widget.event.id == null){
-      print("Error: Event ID is null. Cannot update.");
-      return;
-    }
-    try{
-      final response = await http.put(
-        //Uri.parse('http://localhost:8080/api/events/${widget.event.id}'),
-        Uri.parse('https://calendar-backend-qhny.onrender.com/api/events/${widget.event.id}'), // Use the deployed backend URL
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'title': _titleController.text,
-          'description': _memoController.text,
-          'eventType': _eventType,
-          'startTime': _startTime.toIso8601String(),
-          'endTime': _endTime.toIso8601String(),
-          'isAllDay': _isAllDay,
-        }),
-      );
-      if (response.statusCode == 200) {
-        widget.onUpdate();
-        Navigator.pop(context);
-      } else {
-        print("Server Error: ${response.statusCode}");
-        print("Body: ${response.body}");
-      }
-    } catch (e) {
-      print("Connection Error: $e");
-    }
-  }*/
-  /*
-  Future<void> _pickDatetime({required bool isStart}) async {
-    DateTime initialDate = isStart ? _startTime : _endTime;
-    final pickedDate = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-    );
-    if (pickedDate == null) return;
-    final TimeOfDay? pickedTime = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(initialDate),
-    );
-    if (pickedTime == null) return;
-    setState(() {
-      DateTime finalDateTime = DateTime(
-        pickedDate.year,
-        pickedDate.month,
-        pickedDate.day,
-        pickedTime.hour,
-        pickedTime.minute,
-      );
-      if (isStart) {
-        _startTime = finalDateTime;
-        if (_endTime.isBefore(_startTime)) {
-          _endTime = _startTime.add(const Duration(hours: 1));
-        }
-      } else {
-        _endTime = finalDateTime;
-        if (_startTime.isAfter(_endTime)) {
-          _startTime = _endTime.subtract(const Duration(hours: 1));
-        }
-      }
-    });
-  }*/
 
   Future<void> _deleteSingleEvent() async {
     try{
@@ -187,7 +74,6 @@ class _EventDetailPageState extends State<EventDetailPage> {
   Future<void> _deleteFutureEvents() async {
     try{
       final response = await http.delete(
-        //Uri.parse('http://localhost:8080/api/events/${widget.event.id}'),
         Uri.parse('$_baseUrl/api/events/future/${widget.event.id}'), // Use the deployed backend URL
         headers: _headers(),
       );
@@ -265,13 +151,18 @@ class _EventDetailPageState extends State<EventDetailPage> {
           'title': widget.event.title,
           'description': widget.event.description,
           'eventType': newType,
-          'startTime': widget.event.startTime.toIso8601String(),
-          'endTime': widget.event.endTime.toIso8601String(),
+          'startTime': widget.event.displayStartTime.toIso8601String(),
+          'endTime': widget.event.displayEndTime.toIso8601String(),
+          'timezone': widget.event.timezone,
+          'startTimezone':widget.event.startTimezone,
+          'endTimezone':widget.event.endTimezone,
           'isAllDay': widget.event.isAllDay,
           'isRepeating': widget.event.isRepeating,
           'repeatType': widget.event.repeatType ?? 'None',
-          'endOn': widget.event.repeatEndOn != null,
-          'repeatEndOn': widget.event.repeatEndOn?.toIso8601String(),
+          'endOn': widget.event.endOn ?? (widget.event.repeatEndOn != null),
+          'repeatEndOn': widget.event.repeatEndOn != null
+            ? DailyEvent.convertUtcToTimezone(widget.event.repeatEndOn!, widget.event.startTimezone).toIso8601String()
+            : null,      
         };
         final response = await http.put(
           Uri.parse('$_baseUrl/api/events/${widget.event.id}'),
@@ -305,72 +196,44 @@ class _EventDetailPageState extends State<EventDetailPage> {
     }
   }
 
-  Future<void> _saveOnExit() async {/*
-    if(_isUpdatedFromOutSide) return;
-    await showLoadingIfNeeded(() async {
-      try{
-        final Map<String, dynamic> eventData = {
-          'title': widget.event.title,
-          'description': widget.event.description,
-          'eventType': _eventType,
-          'startTime': widget.event.startTime.toIso8601String(),
-          'endTime': widget.event.endTime.toIso8601String(),
-          'isAllDay': widget.event.isAllDay,
-          'isRepeating': widget.event.isRepeating,
-          'repeatType': widget.event.repeatType ?? 'None',
-          'endOn': widget.event.repeatEndOn != null,
-          'repeatEndOn': widget.event.repeatEndOn?.toIso8601String(),
-        };
-        final response = await http.put(
-          Uri.parse('${LoginPage._baseUrl}/api/events/${widget.event.id}'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(eventData),
-        );
-        if(response.statusCode == 200 || response.statusCode == 204){
-          widget.onUpdate();
-          //_eventType = widget.event.eventType;
-          print("Successfully saved on exit!");
-        }else{
-          print("Failed to save on exist: ${response.statusCode}");
-        }
-      }catch(e){
-        print("Connection Error: $e");
-      }
-    });*/widget.onUpdate();
+  Future<void> _saveOnExit() async {
+    widget.onUpdate();
   }
 
   Widget _buildTimeWidget(){
-    bool isSameDay = widget.event.startTime.year == widget.event.endTime.year &&
-      widget.event.startTime.month == widget.event.endTime.month &&
-      widget.event.startTime.day == widget.event.endTime.day;
+    final start = widget.event.displayStartTime;
+    final end = widget.event.displayEndTime;
+    bool isSameDay = start.year == end.year &&
+      start.month == end.month &&
+      start.day == end.day;
     Widget timeTextWidget;
     if(widget.event.isAllDay&&isSameDay){
       timeTextWidget = Text(
         style: TextStyle(
           fontSize: 15,
         ),
-        '${DateFormat('EEEE, MMMM dd, yyyy').format(widget.event.startTime)}\nAll-Day'
+        '${DateFormat('EEEE, MMMM dd, yyyy').format(start)}\nAll-Day'
       );
     }else if(widget.event.isAllDay){
       timeTextWidget = Text(
         style: TextStyle(
           fontSize: 15,
         ),
-        '${DateFormat('EEEE, MMMM dd, yyyy').format(widget.event.startTime)} - ${DateFormat('EEEE, MMMM dd, yyyy').format(widget.event.endTime)}\nAll-Day'
+        '${DateFormat('EEEE, MMMM dd, yyyy').format(start)} - ${DateFormat('EEEE, MMMM dd, yyyy').format(end)}\nAll-Day'
       );
     }else if(isSameDay){
       timeTextWidget = Text(
         style: TextStyle(
           fontSize: 15,
         ),
-        '${DateFormat('EEEE, MMMM dd, yyyy').format(widget.event.startTime)}\n${DateFormat('HH:mm').format(widget.event.startTime)}-${DateFormat('HH:mm').format(widget.event.endTime)}'
+        'Start: ${DateFormat('EEEE, MMMM dd, yyyy HH:mm').format(start)} (${widget.event.startTimezone.split('/').last})\nEnd: ${DateFormat('EEEE, MMMM dd, yyyy HH:mm').format(end)} (${widget.event.endTimezone.split('/').last})'
       );
     }else{
       timeTextWidget = Text(
         style: TextStyle(
           fontSize: 15,
         ),
-        'Start:${DateFormat('EEEE, MMMM dd, yyyy').format(widget.event.startTime)}\nEnd:${DateFormat('EEEE, MMMM dd, yyyy').format(widget.event.endTime)}'
+        'Start: ${DateFormat('EEEE, MMMM dd, yyyy').format(start)}(${widget.event.startTimezone.split('/').last})\nEnd: ${DateFormat('EEEE, MMMM dd, yyyy HH:mm').format(end)} (${widget.event.endTimezone.split('/').last})'
       );
     }
     List<Widget> children = [timeTextWidget];
@@ -402,131 +265,123 @@ class _EventDetailPageState extends State<EventDetailPage> {
           _saveOnExit();
         }
       },
-    child: Scaffold(
-      appBar: AppBar(
-        title: const Text("Event Details"),
-        backgroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit, size: 28, color: Colors.green),
-            onPressed: ()async{
-              widget.onEdit(_eventType);
-              setState(() {
-                _isUpdatedFromOutSide = true;
-              });
-            },
-          ),/*
-          IconButton(
-            icon: Icon(Icons.delete, size: 28, color: Colors.red.shade400),
-            onPressed: _onDeleteButtonPressed,
-          ),*/
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children:[
-          // 1. Title
-          Text(
-            widget.event.title,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            )
-          ),
-          const SizedBox(height: 20),
-          //2. Time
-          _buildTimeWidget(),
-          SizedBox(height: 30),
-          // 3. Event Type Dropdown
-          DropdownButtonFormField<String>(
-            value: _eventType.isNotEmpty ? _eventType : widget.allEventTypes.first,
-            decoration: const InputDecoration(labelText: "Event Type", border: OutlineInputBorder()),
-            items: widget.allEventTypes.map((String type){
-              return DropdownMenuItem<String>(
-                value: type, 
-                child: Text(
-                  type,
-                  selectionColor: Colors.grey
-                ),
-              );
-            }).toList(),
-            onChanged: (String? newValue) async{
-              if(newValue != null && newValue != _eventType){
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text("Event Details"),
+          backgroundColor: Colors.white,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.edit, size: 28, color: Colors.green),
+              onPressed: ()async{
+                widget.onEdit(_eventType);
                 setState(() {
-                  _eventType = newValue;
+                  _isUpdatedFromOutSide = true;
                 });
-                widget.onEventTypeChanged(newValue);
-                await _updateEventTypeOnServer(newValue);
-              }
-            },
-          ),
-          const SizedBox(height: 40),
-          if(widget.event.description.isNotEmpty)...[
-            // 4. Memo
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal:12, vertical: 8),
-              decoration: const ShapeDecoration(
-                color: Colors.white,
-                shape: StadiumBorder(),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Memo', 
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black,
-                    ),
-                  ),
-                  Text(
-                    widget.event.description,
-                    style: const TextStyle(
-                      fontSize:16,
-                      color: Colors.black,
-                      backgroundColor: Colors.white,
-                    ),
-                  ),
-                ],
-              ),
+              },
             ),
-            const SizedBox(height: 350),
-          ],
-          if(widget.event.description.isEmpty) const SizedBox(height:400),
-          Padding(
-            padding: const EdgeInsets.only(top: 30.0),
-            child: Align(
-              alignment: Alignment.center,
-            child: ElevatedButton.icon(
-              onPressed: _onDeleteButtonPressed,
-              //icon: const Icon(Icons.delete, color: Colors.red),
-              label: const Text("Delete Event", style: TextStyle(color: Colors.red, fontSize: 16)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                //padding:const EdgeInsets.symmetric(vertical: 12),
-                shape: const StadiumBorder(),
-              )
-            ),
-            ),
-          ),
           ],
         ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 1. Title
+              Text(
+                widget.event.title,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 20),
+              // 2. Time
+              _buildTimeWidget(),
+              const SizedBox(height: 30),
+              // 3. Event Type Dropdown
+              DropdownButtonFormField<String>(
+                value: _eventType.isNotEmpty ? _eventType : widget.allEventTypes.first,
+                decoration: const InputDecoration(
+                  labelText: "Event Type",
+                  border: OutlineInputBorder(),
+                ),
+                items: widget.allEventTypes.map((String type) {
+                  return DropdownMenuItem<String>(
+                    value: type,
+                    child: Text(
+                      type,
+                      selectionColor: Colors.grey,
+                    ),
+                  );
+                }).toList(),
+                onChanged: (String? newValue) async {
+                  if (newValue != null && newValue != _eventType) {
+                    setState(() {
+                      _eventType = newValue;
+                    });
+                    widget.onEventTypeChanged(newValue);
+                    await _updateEventTypeOnServer(newValue);
+                  }
+                },
+              ),
+              const SizedBox(height: 24),
+              if (widget.event.description.isNotEmpty) ...[
+                // 4. Memo
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Memo',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        widget.event.description,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: Colors.black,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        bottomNavigationBar: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _onDeleteButtonPressed,
+                  label: const Text(
+                    "Delete Event",
+                    style: TextStyle(color: Colors.red, fontSize: 16),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    shape: const StadiumBorder(),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
-    ),
     );
   } 
-  /*
-  Color _getEventColor(String type){
-    switch(type){
-      case "Task": return Colors.blueAccent;
-      case "Job": return Colors.greenAccent;
-      case "Class": return Colors.orangeAccent;
-      case "Birthday": return Colors.pinkAccent;
-      case "Personal": return Colors.purpleAccent;
-      default: return Colors.grey;
-    }
-  }*/
 }

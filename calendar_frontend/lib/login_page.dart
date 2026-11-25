@@ -2,13 +2,14 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:calendar_frontend/initialSetupPage.dart';
 
 class LoginPage extends StatefulWidget {
-  final String backendBaseUri;
-  final void Function(String token, String username) onLoginSuccess;
+  final String backendBaseUrl;
+  final void Function(String token, String username, UserAppSettings settings) onLoginSuccess;
   const LoginPage({
     super.key,
-    required this.backendBaseUri,
+    required this.backendBaseUrl,
     required this.onLoginSuccess,
   });
 
@@ -31,6 +32,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _sumbmitAuth() async {
+    if(_isSubmitting) return; // Prevent multiple submissionss
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
 
@@ -41,13 +43,15 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
+    FocusScope.of(context).unfocus(); // Dismiss the keyboard
+
     setState(() {
       _isSubmitting = true;
       _errorMessage = null;
     });
 
     final endpoint = _isRegisterMode ? '/api/auth/register' : '/api/auth/login';
-    final uri = Uri.parse('${widget.backendBaseUri}$endpoint');
+    final uri = Uri.parse('${widget.backendBaseUrl}$endpoint');
 
     try{
       final response = await http.post(
@@ -59,14 +63,16 @@ class _LoginPageState extends State<LoginPage> {
       if(response.statusCode == 200 || response.statusCode == 201){
         final token = data['token'] as String;
         final username = data['username'] as String;
+        final settings = UserAppSettings.fromJson(data);
 
         // Store the token and username in SharedPreferences
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('auth_token', token);
         await prefs.setString('auth_username', username);
+        await settings.saveToCache();
 
         if(mounted){
-          widget.onLoginSuccess(token, username);
+          widget.onLoginSuccess(token, username, settings);
         }
       }else{
         setState(() {
@@ -90,65 +96,70 @@ class _LoginPageState extends State<LoginPage> {
       appBar: AppBar(
         title: Text(_isRegisterMode ? 'Create Account' : 'Login'),
       ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 400),
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  _isRegisterMode ? 'Create Account' : 'Login',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24.0),
-                TextField(
-                  controller: _usernameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Username',
-                    border: OutlineInputBorder()
-                  ),
-                ),
-                const SizedBox(height: 16.0),
-                TextField(
-                  controller: _passwordController,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Password(min 6 characters)',
-                    border: OutlineInputBorder()
-                  ),
-                ),
-                if(_errorMessage != null) ...[
-                  const SizedBox(height: 12.0),
+      body: AbsorbPointer(
+        absorbing: _isSubmitting,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
                   Text(
-                    _errorMessage!,
-                    style: const TextStyle(color: Colors.red),
+                    _isRegisterMode ? 'Create Account' : 'Login',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24.0),
+                  TextField(
+                    controller: _usernameController,
+                    enabled: !_isSubmitting,
+                    decoration: const InputDecoration(
+                      labelText: 'Username',
+                      border: OutlineInputBorder()
+                    ),
+                  ),
+                  const SizedBox(height: 16.0),
+                  TextField(
+                    controller: _passwordController,
+                    enabled: !_isSubmitting,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Password(min 6 characters)',
+                      border: OutlineInputBorder()
+                    ),
+                  ),
+                  if(_errorMessage != null) ...[
+                    const SizedBox(height: 12.0),
+                    Text(
+                      _errorMessage!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ],
+                  const SizedBox(height: 20.0),
+                  ElevatedButton(
+                    onPressed: _isSubmitting ? null : _sumbmitAuth,
+                    child: _isSubmitting
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2.0),
+                        )
+                      : Text(_isRegisterMode ? 'Create Account' : 'Login'),
+                  ),
+                  TextButton(
+                    onPressed: _isSubmitting ? null : (){
+                      setState(() {
+                        _isRegisterMode = !_isRegisterMode;
+                        _errorMessage = null;
+                      });
+                    },
+                    child: Text(_isRegisterMode ? 'Already have an account? Login' : 'Don\'t have an account? Create one'),
                   ),
                 ],
-                const SizedBox(height: 20.0),
-                ElevatedButton(
-                  onPressed: _isSubmitting ? null : _sumbmitAuth,
-                  child: _isSubmitting
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2.0),
-                      )
-                    : Text(_isRegisterMode ? 'Create Account' : 'Login'),
-                ),
-                TextButton(
-                  onPressed: _isSubmitting ? null : (){
-                    setState(() {
-                      _isRegisterMode = !_isRegisterMode;
-                      _errorMessage = null;
-                    });
-                  },
-                  child: Text(_isRegisterMode ? 'Already have an account? Login' : 'Don\'t have an account? Create one'),
-                ),
-              ],
+              ),
             ),
           ),
         ),

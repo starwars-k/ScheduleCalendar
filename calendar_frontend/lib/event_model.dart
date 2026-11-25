@@ -5,6 +5,9 @@ class DailyEvent{
   final DateTime startTime;
   final DateTime endTime;
   final String eventType;
+  final String timezone;
+  final String startTimezone;
+  final String endTimezone;
   final bool isAllDay;
   final bool isRepeating;
   final String? repeatType;
@@ -19,6 +22,9 @@ class DailyEvent{
     required this.startTime, 
     required this.endTime, 
     required this.eventType,
+    this.timezone = 'UTC',
+    this.startTimezone = 'UTC',
+    this.endTimezone = 'UTC',
     required this.repeatType,
     required this.isAllDay,
     required this.isRepeating,
@@ -28,6 +34,10 @@ class DailyEvent{
   });
 
   factory DailyEvent.fromJson(Map<String, dynamic> json){
+    final fallbackTz = json['timezone']?.toString() ?? 'UTC';
+    final startTz = json['startTimezone']?.toString() ?? fallbackTz;
+    final endTz = json['endTimezone']?.toString() ?? startTz;
+
     return DailyEvent(
       id: json['id'] is int ? json['id'] : (int.tryParse(json['id']?.toString() ?? '0') ?? 0),
       title: json['title'] ?? 'No Title',
@@ -39,6 +49,9 @@ class DailyEvent{
         ? DateTime.parse(json['endTime'].toString()) 
         : DateTime.now(),
       eventType: json['eventType']?.toString() ?? 'Unknown',
+      timezone: fallbackTz,
+      startTimezone: startTz,
+      endTimezone: endTz,
       isAllDay: json['isAllDay'] ?? false,
       isRepeating: json['isRepeating'] ?? false,
       repeatType: json['repeatType']?.toString(),
@@ -49,4 +62,51 @@ class DailyEvent{
       seriesId: json['seriesId']?.toString(), 
     );
   }
+
+  static int _fixedOffsetMinutes(String tzName) {
+    switch (tzName) {
+      case 'Asia/Tokyo':
+        return 9 * 60;
+      case 'Europe/London':
+        return 0;
+      case 'Europe/Paris':
+        return 1 * 60;
+      case 'America/New_York':
+        return -5 * 60;
+      case 'America/Chicago':
+        return -6 * 60;
+      case 'America/Denver':
+        return -7 * 60;
+      case 'America/Los_Angeles':
+        return -8 * 60;
+      case 'UTC':
+      default:
+        return 0;
+    }
+  }
+
+  static DateTime convertUtcToTimezone(DateTime utcOrParsed, String tzName) {
+    final utc = DateTime.utc(
+      utcOrParsed.year,
+      utcOrParsed.month,
+      utcOrParsed.day,
+      utcOrParsed.hour,
+      utcOrParsed.minute,
+      utcOrParsed.second,
+      utcOrParsed.millisecond,
+    );
+    final shifted = utc.add(Duration(minutes: _fixedOffsetMinutes(tzName)));
+    return DateTime(
+      shifted.year,
+      shifted.month,
+      shifted.day,
+      shifted.hour,
+      shifted.minute,
+      shifted.second,
+      shifted.millisecond,
+    );
+  }
+
+  DateTime get displayStartTime => convertUtcToTimezone(startTime, startTimezone);
+  DateTime get displayEndTime => convertUtcToTimezone(endTime, endTimezone);
 }
