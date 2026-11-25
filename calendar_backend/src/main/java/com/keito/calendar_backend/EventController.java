@@ -5,22 +5,34 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
+import main.java.com.keito.calendar_backend.AuthService;
+
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.uttl.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/events")
 public class EventController {
-    private final EventRepository repository;
+    private final EventRepository eventRepository;
+    private final UserRepository userRepository;
     private final AuthService authService;
 
-    public EventController(EventRepository repository, AuthService authService) {
-        this.repository = repository;
+    public EventController(
+        EventRepository eventRepository, 
+        UserRepository userRepository,
+        AuthService authService
+    ) {
+        this.eventRepository = eventRepository;
+        this.userRepository = userRepository;
         this.authService = authService;
     }
-
+    /*
     private Long requireUserId(String authHeader) {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing or invalid Authorization header");
@@ -28,7 +40,7 @@ public class EventController {
         String token = authHeader.substring(7).trim();
         return authService.parseUserIdFromToken(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid or expired token"));
-    }
+    }*/
 
     @GetMapping
     public List<DailyEvent> getAllEvents(@RequestHeader("Authorization") String authHeader) {
@@ -225,5 +237,41 @@ public class EventController {
             event.setUserId(userId);
         }
         return repository.saveAll(events);
+    }
+
+    private void normalizeEventTimesToUserTimezone(DailyEvent event, Long userId) {
+        if (event.getEventTimezone() == null || event.getEventTimezone().isBlank()) {
+            return;
+        }
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null) return;
+
+        try {
+            ZoneId sourceZone = ZoneId.of(event.getEventTimezone());
+            ZoneId targetZone = ZoneId.of(user.getTimezone());
+            if (!sourceZone.equals(targetZone)) {
+                if (event.getStartTime() != null) {
+                    event.setStartTime(
+                            ZonedDateTime.of(event.getStartTime(), sourceZone)
+                                    .withZoneSameInstant(targetZone)
+                                    .toLocalDateTime()
+                    );
+                }
+                if (event.getEndTime() != null) {
+                    event.setEndTime(
+                            ZonedDateTime.of(event.getEndTime(), sourceZone)
+                                    .withZoneSameInstant(targetZone)
+                                    .toLocalDateTime()
+                    );
+                }
+                if (event.getRepeatEndOn() != null) {
+                    event.setRepeatEndOn(
+                            ZonedDateTime.of(event.getRepeatEndOn(), sourceZone)
+                                    .withZoneSameInstant(targetZone)
+                                    .toLocalDateTime()
+                    );
+                }
+            }
+        } catch (Exception ignored) {}            
     }
 }

@@ -1,6 +1,8 @@
 package com.keito.calendar_backend;
 
 import jakarta.persistence.*;
+
+import java.beans.Transient;
 import java.time.LocalDateTime;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonFormat;
@@ -29,6 +31,8 @@ public class DailyEvent {
     private String description;
     private String eventType;
     private String seriesId;
+    @Transient
+    final private String timezone = "UTC";
     public DailyEvent(){}
     
     public DailyEvent(String title, String description, LocalDateTime startTime, LocalDateTime endTime, String eventType, boolean isAllDay, boolean isRepeating){
@@ -41,83 +45,45 @@ public class DailyEvent {
         this.isAllDay = isAllDay;
     }
 
-    public Long getId() {
-        return id;
-    }
-    public void setId(Long id) {
-        this.id = id;
-    }
-    public Long getUserId() {
-        return userId;
-    }
-    public void setUserId(Long userId) {
-        this.userId = userId;
-    }
-    public String getTitle() {
-        return title;
-    }
-    public void setTitle(String title) {
-        this.title = title;
-    }
-    public String getDescription() {
-        return description;
-    }
-    public void setDescription(String description) {
-        this.description = description;
-    }
-    public LocalDateTime getStartTime() {
-        return startTime;
-    }
-    public void setStartTime(LocalDateTime startTime) {
-        this.startTime = startTime;
-    }
-    public LocalDateTime getEndTime() {
-        return endTime;
-    }
-    public void setEndTime(LocalDateTime endTime) {
-        this.endTime = endTime;
-    }
+    public Long getId() {return id;}
+    public void setId(Long id) {this.id = id;}
+
+    public Long getUserId() {return userId;}
+    public void setUserId(Long userId) {this.userId = userId;}
+
+    public String getTitle() {return title;}
+    public void setTitle(String title) {this.title = title;}
+
+    public String getDescription() {return description;}
+    public void setDescription(String description) {this.description = description;}
+
+    public LocalDateTime getStartTime() {return startTime;}
+    public void setStartTime(LocalDateTime startTime) {this.startTime = startTime;}
+
+    public LocalDateTime getEndTime() {return endTime;}
+    public void setEndTime(LocalDateTime endTime) {this.endTime = endTime;}
     
-    public boolean getIsRepeating(){
-        return isRepeating;
-    }
-    public void setIsRepeating(boolean isRepeating){
-        this.isRepeating = isRepeating;
-    }
-    public boolean getIsAllDay() {
-        return isAllDay;
-    }
-    public void setIsAllDay(boolean isAllDay) {
-        this.isAllDay = isAllDay;
-    }
-    public String getRepeatType(){
-        return repeatType;
-    }
-    public void setRepeatType(String repeatType){
-        this.repeatType = repeatType;
-    }
-    public boolean getEndOn(){
-        return endOn;
-    }
-    public void setEndOn(boolean endOn){
-        this.endOn = endOn;
-    }
-    public LocalDateTime getRepeatEndOn(){
-        return repeatEndOn;
-    }
-    public void setRepeatEndOn(LocalDateTime repeatEndOn){
-        this.repeatEndOn = repeatEndOn;
-    }
-    public String getEventType() {
-        return eventType;
-    }
-    public void setEventType(String eventType) {
-        this.eventType = eventType;
-    }
-    public String getSeriesId(){
-        return seriesId;
-    }
-    public void setSeriesId(String seriesId){
-        this.seriesId = seriesId;
-    }
+    public boolean getIsRepeating(){return isRepeating;}
+    public void setIsRepeating(boolean isRepeating){this.isRepeating = isRepeating;}
+
+    public boolean getIsAllDay() {return isAllDay;}
+    public void setIsAllDay(boolean isAllDay) {this.isAllDay = isAllDay;}
+
+    public String getRepeatType(){return repeatType;}
+    public void setRepeatType(String repeatType){this.repeatType = repeatType;}
+
+    public boolean getEndOn(){return endOn;}
+    public void setEndOn(boolean endOn){this.endOn = endOn;}
+
+    public LocalDateTime getRepeatEndOn(){return repeatEndOn;}
+    public void setRepeatEndOn(LocalDateTime repeatEndOn){this.repeatEndOn = repeatEndOn;}
+
+    public String getEventType() {return eventType;}
+    public void setEventType(String eventType) {this.eventType = eventType;}
+
+    public String getSeriesId(){return seriesId;}
+    public void setSeriesId(String seriesId){this.seriesId = seriesId;}
+
+    public String getTimezone(){return timezone;}
+    public void setTimezone(String eventTimezone){this.timezone = timezone;}
 }
