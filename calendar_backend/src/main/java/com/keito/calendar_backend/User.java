@@ -17,42 +17,49 @@ public class User {
     @Column(nullable = false)
     private String passwordHash;
 
-    @Column(nullable = false)
-    private LocalDateTime createdAt = LocalDateTime.now();
+    private String timezone = "UTC";
+
+    private String language = "en";
+
+    private Boolean enableTodoList = false;
+
+    private Boolean enableNotification = false;
+
+    private Boolean enablePayroll = false;
+
+    private Boolean setupCompleted = false;
 
     public User() {}
 
     public User(String username, String passwordHash) {
         this.username = username;
         this.passwordHash = passwordHash;
-        this.createdAt = LocalDateTime.now();
     }
 
-    public Long getId() {
-        return id;
-    }
-    public void setId(Long id) {
-        this.id = id;
-    }
+    public Long getId() {return id;}
+    public void setId(Long id) {this.id = id;}
     
-    public String getUsername() {
-        return username;
-    }
-    public void setUsername(String username) {
-        this.username = username;
-    }
+    public String getUsername() {return username;}
+    public void setUsername(String username) {this.username = username;}
     
-    public String getPasswordHash() {
-        return passwordHash;
-    }
-    public void setPasswordHash(String passwordHash) {
-        this.passwordHash = passwordHash;
-    }
+    public String getPasswordHash() {return passwordHash;}
+    public void setPasswordHash(String passwordHash) {this.passwordHash = passwordHash;}
 
-    public LocalDateTime getCreatedAt() {
-        return createdAt;
-    }
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
-    }
+    public String getTimezone() {return timezone;}
+    public void setTimezone(String timezone) {this.timezone = timezone;}
+
+    public String getLanguage() {return language;}
+    public void setLanguage(String language) {this.language = language;}
+
+    public Boolean getEnableTodoList() {return enableTodoList;}
+    public void setEnableTodoList(Boolean enableTodoList) {this.enableTodoList = enableTodoList;}
+
+    public Boolean getEnableNotification() {return enableNotification;}
+    public void setEnableNotification(Boolean enableNotification) {this.enableNotification = enableNotification;}
+
+    public Boolean getEnablePayroll() {return enablePayroll;}
+    public void setEnablePayroll(Boolean enablePayroll) {this.enablePayroll = enablePayroll;}
+
+    public Boolean getSetupCompleted() {return setupCompleted;}
+    public void setSetupCompleted(Boolean setupCompleted) {this.setupCompleted = setupCompleted;}
 }
