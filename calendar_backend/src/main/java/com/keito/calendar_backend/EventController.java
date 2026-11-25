@@ -5,6 +5,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
+import java.beans.Transient;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -90,6 +91,27 @@ public class EventController {
         return ResponseEntity.ok(events);
     }
 
+    private ZonedDateTime defaultRepeatLimit(ZonedDateTime baseStart, String repeatType) {
+        if (repeatType == null) return baseStart.plusYears(1);
+        return switch (repeatType) {
+            case "Yearly" -> baseStart.plusYears(10);
+            case "Monthly" -> baseStart.plusYears(2);
+            default -> baseStart.plusYears(1);
+        };
+    }
+
+    private ZonedDateTime advanceByRepeatType(ZonedDateTime base, String repeatType, int step) {
+        if (repeatType == null) return base.plusYears(100);
+        return switch (repeatType) {
+            case "Daily" -> base.plusDays(step);
+            case "Weekly" -> base.plusWeeks(step);
+            case "Biweekly" -> base.plusWeeks(step * 2L);
+            case "Monthly" -> base.plusMonths(step);
+            case "Yearly" -> base.plusYears(step);
+            default -> base.plusYears(100);
+        };
+    }
+
     // 2. 新規イベント作成（isAllDayも含め、timezoneを保存し時刻をUTCに統一して保存）
     @PostMapping({"", "/"})
     public ResponseEntity<?> createEvent(
@@ -121,14 +143,18 @@ public class EventController {
         String seriesId = UUID.randomUUID().toString();
         List<DailyEvent> eventsToSave = new ArrayList<>();
 
-        ZonedDateTime currentStart = ZonedDateTime.of(event.getStartTime(), eventZone);
-        ZonedDateTime currentEnd = ZonedDateTime.of(event.getEndTime(), eventZone);
+        ZonedDateTime baseStart = ZonedDateTime.of(event.getStartTime(), eventZone);
+        ZonedDateTime baseEnd = ZonedDateTime.of(event.getEndTime(), eventZone);
         ZonedDateTime limitDate = (Boolean.TRUE.equals(event.getEndOn()) && event.getRepeatEndOn() != null)
                 ? ZonedDateTime.of(event.getRepeatEndOn(), eventZone)
-                : currentStart.plusYears(1);
+                : defaultRepeatLimit(baseStart, event.getRepeatType());
 
         int safetyCount = 0;
-        while (!currentStart.isAfter(limitDate) && safetyCount < 366) {
+        while(safetyCount < 366){
+            ZonedDateTime currentStart = advanceByRepeatType(baseEnd, event.getRepeatType(), safetyCount);
+            ZonedDateTime currentEnd = advanceByRepeatType(baseEnd, event.getRepeatType(), safetyCount);
+            if(currentStart.isAfter(limitDate)) break;
+
             DailyEvent occurrence = new DailyEvent(
                     event.getTitle(),
                     event.getDescription(),
@@ -146,32 +172,6 @@ public class EventController {
             occurrence.setSeriesId(seriesId);
 
             eventsToSave.add(occurrence);
-
-            switch (event.getRepeatType()) {
-                case "Daily" -> {
-                    currentStart = currentStart.plusDays(1);
-                    currentEnd = currentEnd.plusDays(1);
-                }
-                case "Weekly" -> {
-                    currentStart = currentStart.plusWeeks(1);
-                    currentEnd = currentEnd.plusWeeks(1);
-                }
-                case "Biweekly" -> {
-                    currentStart = currentStart.plusWeeks(2);
-                    currentEnd = currentEnd.plusWeeks(2);
-                }
-                case "Monthly" -> {
-                    currentStart = currentStart.plusMonths(1);
-                    currentEnd = currentEnd.plusMonths(1);
-                }
-                case "Yearly" -> {
-                    currentStart = currentStart.plusYears(1);
-                    currentEnd = currentEnd.plusYears(1);
-                }
-                default -> {
-                    currentStart = limitDate.plusDays(1);
-                }
-            }
             safetyCount++;
         }
 
@@ -181,6 +181,7 @@ public class EventController {
 
     // 3. イベント更新（isAllDayも含め、timezoneを保存し時刻をUTCに統一して保存）
     @PutMapping("/{id}")
+    @Transactional
     public ResponseEntity<?> updateEvent(
             @RequestHeader(value = "Authorization", required = false) String authHeader,
             @PathVariable Long id,
@@ -221,74 +222,58 @@ public class EventController {
             DailyEvent saved = eventRepository.save(existing);
             return ResponseEntity.ok(saved);
         }
-        if(existing.getSeriesId() == null || existing.getSeriesId().isBlank()){
-            String seriesId = UUID.randomUUID().toString();
-            existing.setSeriesId(seriesId);
-            DailyEvent savedFirst = eventRepository.save(existing);
+        String oldSeriesId = existing.getSeriesId();
+        String seriesId = (oldSeriesId == null || oldSeriesId.isBlank())
+                ? UUID.randomUUID().toString()
+                : oldSeriesId;
+        existing.setSeriesId(seriesId);
+        DailyEvent savedFirst = eventRepository.save(existing);
 
-            List<DailyEvent> additionalEvents = new ArrayList<>();
-            ZonedDateTime currentStart = ZonedDateTime.of(updatedEvent.getStartTime(), eventZone);
-            ZonedDateTime currentEnd = ZonedDateTime.of(updatedEvent.getEndTime(), eventZone);
-            ZonedDateTime limitDate = (Boolean.TRUE.equals(updatedEvent.getEndOn()) && updatedEvent.getRepeatEndOn() != null)
-                    ? ZonedDateTime.of(updatedEvent.getRepeatEndOn(), eventZone)
-                    : currentStart.plusYears(1);
-
-            int safetyCount = 1;
-            while (safetyCount < 366) {
-                switch (updatedEvent.getRepeatType()) {
-                    case "Daily" -> {
-                        currentStart = currentStart.plusDays(1);
-                        currentEnd = currentEnd.plusDays(1);
-                    }
-                    case "Weekly" -> {
-                        currentStart = currentStart.plusWeeks(1);
-                        currentEnd = currentEnd.plusWeeks(1);
-                    }
-                    case "Biweekly" -> {
-                        currentStart = currentStart.plusWeeks(2);
-                        currentEnd = currentEnd.plusWeeks(2);
-                    }
-                    case "Monthly" -> {
-                        currentStart = currentStart.plusMonths(1);
-                        currentEnd = currentEnd.plusMonths(1);
-                    }
-                    case "Yearly" -> {
-                        currentStart = currentStart.plusYears(1);
-                        currentEnd = currentEnd.plusYears(1);
-                    }
-                    default -> {
-                        currentStart = limitDate.plusDays(1);
-                    }
-                }
-                if (currentStart.isAfter(limitDate)) break;
-
-                DailyEvent occurrence = new DailyEvent(
-                        updatedEvent.getTitle(),
-                        updatedEvent.getDescription(),
-                        currentStart.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime(),
-                        currentEnd.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime(),
-                        updatedEvent.getEventType(),
-                        Boolean.TRUE.equals(updatedEvent.getIsAllDay()),
-                        true
-                );
-                occurrence.setUserId(user.getId());
-                occurrence.setEventTimezone(eventZone.getId());
-                occurrence.setRepeatType(updatedEvent.getRepeatType());
-                occurrence.setEndOn(Boolean.TRUE.equals(updatedEvent.getEndOn()));
-                occurrence.setRepeatEndOn(toUtc(updatedEvent.getRepeatEndOn(), eventZone));
-                occurrence.setSeriesId(seriesId);
-
-                additionalEvents.add(occurrence);
-                safetyCount++;
-            }
-
-            if (!additionalEvents.isEmpty()) {
-                eventRepository.saveAll(additionalEvents);
-            }
-            return ResponseEntity.ok(savedFirst);
+        if (oldSeriesId != null && !oldSeriesId.isBlank()) {
+            List<DailyEvent> oldFutureOccurrences = eventRepository.findBySeriesIdAndUserId(oldSeriesId, user.getId()).stream()
+                    .filter(e -> !e.getId().equals(savedFirst.getId()))
+                    .filter(e -> e.getStartTime() != null && !e.getStartTime().isBefore(savedFirst.getStartTime()))
+                    .toList();
+            eventRepository.deleteAll(oldFutureOccurrences);
         }
-        DailyEvent saved = eventRepository.save(existing);
-        return ResponseEntity.ok(saved);
+
+        List<DailyEvent> additionalEvents = new ArrayList<>();
+        ZonedDateTime baseStart = ZonedDateTime.of(updatedEvent.getStartTime(), eventZone);
+        ZonedDateTime baseEnd = ZonedDateTime.of(updatedEvent.getEndTime(), eventZone);
+        ZonedDateTime limitDate = (Boolean.TRUE.equals(updatedEvent.getEndOn()) && updatedEvent.getRepeatEndOn() != null)
+                ? ZonedDateTime.of(updatedEvent.getRepeatEndOn(), eventZone)
+                : defaultRepeatLimit(baseStart, updatedEvent.getRepeatType());
+
+        int safetyCount = 1;
+        while (safetyCount < 366) {
+            ZonedDateTime currentStart = advanceByRepeatType(baseStart, updatedEvent.getRepeatType(), safetyCount);
+            ZonedDateTime currentEnd = advanceByRepeatType(baseEnd, updatedEvent.getRepeatType(), safetyCount);
+            if (currentStart.isAfter(limitDate)) break;
+
+            DailyEvent occurrence = new DailyEvent(
+                    updatedEvent.getTitle(),
+                    updatedEvent.getDescription(),
+                    currentStart.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime(),
+                    currentEnd.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime(),
+                    updatedEvent.getEventType(),
+                    Boolean.TRUE.equals(updatedEvent.getIsAllDay()),
+                    true
+            );
+            occurrence.setUserId(user.getId());
+            occurrence.setEventTimezone(eventZone.getId());
+            occurrence.setRepeatType(updatedEvent.getRepeatType());
+            occurrence.setEndOn(Boolean.TRUE.equals(updatedEvent.getEndOn()));
+            occurrence.setRepeatEndOn(toUtc(updatedEvent.getRepeatEndOn(), eventZone));
+            occurrence.setSeriesId(seriesId);
+
+            additionalEvents.add(occurrence);
+            safetyCount++;
+        }
+
+        if (!additionalEvents.isEmpty()) {
+            eventRepository.saveAll(additionalEvents);
+        }
+        return ResponseEntity.ok(savedFirst);
     }
 
     // 4. 単一イベント削除
