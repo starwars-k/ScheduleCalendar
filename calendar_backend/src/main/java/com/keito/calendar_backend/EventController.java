@@ -5,7 +5,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
-import java.beans.Transient;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -151,7 +150,7 @@ public class EventController {
 
         int safetyCount = 0;
         while(safetyCount < 366){
-            ZonedDateTime currentStart = advanceByRepeatType(baseEnd, event.getRepeatType(), safetyCount);
+            ZonedDateTime currentStart = advanceByRepeatType(baseStart, event.getRepeatType(), safetyCount);
             ZonedDateTime currentEnd = advanceByRepeatType(baseEnd, event.getRepeatType(), safetyCount);
             if(currentStart.isAfter(limitDate)) break;
 
