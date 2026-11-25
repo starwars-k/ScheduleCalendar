@@ -1,14 +1,18 @@
-import 'package:flutter/material.dart';
-import 'package:table_calendar/table_calendar.dart'; // The calendar widget
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:calendar_frontend/event_model.dart'; // The event model class
-import 'package:intl/intl.dart';
 import 'package:calendar_frontend/EventDetailPage.dart';
 import 'package:calendar_frontend/login_page.dart';
-import 'package:flutter/cupertino.dart'; // For LocalDateTime
-import 'dart:async';
+import 'package:calendar_frontend/initialSetupPage.dart';
+import 'package:calendar_frontend/event_model.dart'; // The event model class
+
+import 'package:table_calendar/table_calendar.dart'; // The calendar widget
+import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart'; // For LocalDateTime
+
+import 'dart:convert';
+import 'dart:async';
+
 
 const String kBackendBaseUrl = 'https://calendar-backend-qhny.onrender.com'; // Replace with your backend URL
 final ValueNotifier<bool> globalLoading = ValueNotifier<bool>(false);
@@ -49,6 +53,7 @@ class AuthGatePage extends StatefulWidget {
 class _AuthGatePageState extends State<AuthGatePage> {
   String? _token;
   String? _username;
+  UserAppSettings _appSettings = const UserAppSettings();
   bool _checkingAuth = true;
 
   @override
@@ -61,12 +66,33 @@ class _AuthGatePageState extends State<AuthGatePage> {
     final prefs = await SharedPreferences.getInstance();
     final savedToken = prefs.getString('auth_token');
     final savedUsername = prefs.getString('auth_username');
+    final cachedSettings = await UserAppSettings.loadFromCache();
+
     if (!mounted) return;
     setState(() {
       _token = (savedToken != null && savedToken.isNotEmpty) ? savedToken : null;
       _username = savedUsername;
+      _appSettings = cachedSettings;
       _checkingAuth = false;
     });
+
+    if (savedToken != null && savedToken.isNotEmpty) {
+      try {
+        final response = await http.get(
+          Uri.parse('$kBackendBaseUrl/api/user/settings'),
+          headers: {'Authorization': 'Bearer $savedToken'},
+        );
+        if (response.statusCode == 200 && mounted) {
+          final freshSettings = UserAppSettings.fromJson(
+            jsonDecode(response.body) as Map<String, dynamic>,
+          );
+          await freshSettings.saveToCache();
+          setState(() {
+            _appSettings = freshSettings;
+          });
+        }
+      } catch (_) {}
+    }
   }
 
   Future<void> _logout() async {
@@ -74,10 +100,12 @@ class _AuthGatePageState extends State<AuthGatePage> {
     await prefs.remove('auth_token');
     await prefs.remove('auth_username');
     await prefs.remove('auth_userId');
+    await prefs.remove('auth_user_settings');
     if (!mounted) return;
     setState(() {
       _token = null;
       _username = null;
+      _appSettings = const UserAppSettings();
     });
   }
 
@@ -90,11 +118,25 @@ class _AuthGatePageState extends State<AuthGatePage> {
     }
     if (_token == null) {
       return LoginPage(
-        backendBaseUri: kBackendBaseUrl,
-        onLoginSuccess: (token, username) {
+        backendBaseUrl: kBackendBaseUrl,
+        onLoginSuccess: (token, username, settings) {
           setState(() {
             _token = token;
             _username = username;
+            _appSettings = settings;
+          });
+        },
+      );
+    }
+    if (!_appSettings.setupCompleted) {
+      return InitialSetupPage(
+        backendBaseUrl: kBackendBaseUrl,
+        authToken: _token!,
+        username: _username ?? '',
+        initialSettings: _appSettings,
+        onSetupComplete: (updatedSettings) {
+          setState(() {
+            _appSettings = updatedSettings;
           });
         },
       );
@@ -102,6 +144,7 @@ class _AuthGatePageState extends State<AuthGatePage> {
     return CalendarPage(
       authToken: _token!,
       username: _username ?? '',
+      appSettings: _appSettings,
       onLogout: _logout,
     );
   }
@@ -110,12 +153,14 @@ class _AuthGatePageState extends State<AuthGatePage> {
 class CalendarPage extends StatefulWidget {
   final String authToken;
   final String username;
+  final UserAppSettings appSettings;
   final Future<void> Function() onLogout;
 
   const CalendarPage({
     super.key,
     required this.authToken,
     required this.username,
+    required this.appSettings,
     required this.onLogout,
   });
 
@@ -127,6 +172,8 @@ class _CalendarPageState extends State<CalendarPage> {
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _memoController = TextEditingController();
   String _eventType = 'Task';
+  late String _startTimezone;
+  late String _endTimezone;
   String _repeatType = 'Daily';
   DateTime _selectedDay = DateTime.now();
   DateTime _focusedDay = DateTime.now();
@@ -135,10 +182,13 @@ class _CalendarPageState extends State<CalendarPage> {
   bool _isAllDay = false;
   bool _isRepeating = false;
   bool _endOn = false;
+  bool _showStartTimezonePicker = false;
+  bool _showEndTimezonePicker = false;
   final bool _isSearching = false;
   DateTime _repeatEndDate = DateTime.now().add(const Duration(days: 1));
   CalendarFormat _calendarFormat = CalendarFormat.month;
   List<DailyEvent> _events = [];
+
 
   Map<String, String> _authHeaders({bool json = false}) {
     final headers = <String, String>{
@@ -154,9 +204,9 @@ class _CalendarPageState extends State<CalendarPage> {
     final list = _events.where((event) {
       final dayStart = DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day, 0, 0, 0);
       final dayEnd = DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day, 23, 59, 59);
-      return event.startTime.isBefore(dayEnd) && event.endTime.isAfter(dayStart);
+      return event.displayStartTime.isBefore(dayEnd) && event.displayEndTime.isAfter(dayStart);
     }).toList();
-    list.sort((a, b) => a.startTime.compareTo(b.startTime));
+    list.sort((a, b) => a.displayStartTime.compareTo(b.displayStartTime));
     return list;
   }
 
@@ -180,30 +230,48 @@ class _CalendarPageState extends State<CalendarPage> {
     }
   }
 
+  String _defaultUserTimezone() {
+    return kSupportedTimezones.contains(widget.appSettings.timezone)
+        ? widget.appSettings.timezone
+        : 'America/Chicago';
+  }
+
   @override
   void initState() {
     super.initState();
+    _startTimezone = _defaultUserTimezone();
+    _endTimezone = _defaultUserTimezone();
     fetchEventsFromJava();
   }
 
   Future<bool?> _showAddEventDialog(BuildContext context, DateTime initialDate, {DailyEvent? eventToEdit, String? initialEventType}) async {
     final bool isEditing = eventToEdit != null;
     _titleController.text = isEditing ? eventToEdit.title : '';
-    _isAllDay = isEditing ? eventToEdit.isAllDay : false;
-    _startTime = isEditing ? eventToEdit.startTime : DateTime(initialDate.year, initialDate.month, initialDate.day, DateTime.now().hour);
-    _endTime = isEditing ? eventToEdit.endTime : _startTime.add(const Duration(hours: 1));
-    _isRepeating = isEditing ? eventToEdit.isRepeating : false;
-    _repeatType = isEditing && eventToEdit.repeatType != null ? eventToEdit.repeatType! : 'None';
-    _repeatOptions.contains(_repeatType) ? _repeatType : 'Daily';
-    _endOn = isEditing ? (eventToEdit.repeatEndOn != null) : false;
-    if (isEditing && eventToEdit.repeatEndOn != null) {
-      _repeatEndDate = eventToEdit.repeatEndOn!;
-    } else {
-      _repeatEndDate = initialDate.add(const Duration(days: 1));
-    }
     _memoController.text = isEditing ? eventToEdit.description : '';
+    _startTime = isEditing ? eventToEdit.displayStartTime : DateTime(initialDate.year, initialDate.month, initialDate.day, DateTime.now().hour);
+    _endTime = isEditing ? eventToEdit.displayEndTime : _startTime.add(const Duration(hours: 1));
     _eventType = initialEventType ?? (isEditing ? eventToEdit.eventType : 'Task');
+    _startTimezone = (isEditing && kSupportedTimezones.contains(eventToEdit.startTimezone))
+      ? eventToEdit.startTimezone
+      :_defaultUserTimezone();
+    _endTimezone = (isEditing && kSupportedTimezones.contains(eventToEdit.endTimezone))
+      ? eventToEdit.endTimezone
+      : _startTimezone;
+    _isAllDay = isEditing ? eventToEdit.isAllDay : false;
+    _isRepeating = isEditing ? eventToEdit.isRepeating : false;
+    _showStartTimezonePicker = false;
+    _showEndTimezonePicker = false;
+    _repeatType = (_isRepeating && isEditing && eventToEdit.repeatType != null && _repeatOptions.contains(eventToEdit.repeatType))
+      ? eventToEdit.repeatType!
+      : (_isRepeating ? 'Daily' : 'None');
+    _endOn = isEditing ? (eventToEdit.endOn ?? (eventToEdit.repeatEndOn != null)) : false;
+    
 
+    if (isEditing && eventToEdit.repeatEndOn != null) {
+          _repeatEndDate = DailyEvent.convertUtcToTimezone(eventToEdit.repeatEndOn!, eventToEdit.startTimezone);
+        } else {
+          _repeatEndDate = initialDate.add(const Duration(days: 1));
+        }
     final ScrollController modalScrollController = ScrollController();
     return await showModalBottomSheet<bool>(
       context: context,
@@ -257,58 +325,73 @@ class _CalendarPageState extends State<CalendarPage> {
                             onChanged: (bool? value) {
                               setDialogState(() {
                                 _isAllDay = value ?? false;
-                                _startTime = DateTime(
-                                  _startTime.year,
-                                  _startTime.month,
-                                  _startTime.day,
-                                  DateTime.now().hour,
-                                  0,
-                                );
+                                if(_isAllDay){
+                                  _startTime = DateTime(
+                                    _startTime.year,
+                                    _startTime.month,
+                                    _startTime.day,
+                                    0,
+                                    0,
+                                    0,
+                                  );
+                                  _endTime = DateTime(
+                                    _startTime.year,
+                                    _startTime.month,
+                                    _startTime.day,
+                                    23,
+                                    59,
+                                    59,
+                                  );
+                                }
                               });
                             },
                           ),
                           const Text("All-Day Event"),
                         ],
                       ),
-                      if (!_isAllDay) ...[
-                        ListTile(
-                          title: const Text("Start Time"),
-                          trailing: Wrap(
-                            spacing: 8,
-                            children: [
-                              TextButton.icon(
-                                label: Text(
-                                  DateFormat('yyyy-MM-dd').format(_startTime),
-                                  style: const TextStyle(color: Colors.black),
-                                ),
-                                style: TextButton.styleFrom(
-                                  backgroundColor: CupertinoColors.extraLightBackgroundGray,
-                                  shape: const StadiumBorder(),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                                ),
-                                onPressed: () async {
-                                  final DateTime? pickedDate = await showDatePicker(
-                                    context: context,
-                                    initialDate: _startTime,
-                                    firstDate: DateTime(2000),
-                                    lastDate: DateTime(2100),
-                                  );
-                                  if (pickedDate != null) {
-                                    setDialogState(() {
-                                      _startTime = DateTime(
-                                        pickedDate.year,
-                                        pickedDate.month,
-                                        pickedDate.day,
-                                        _startTime.hour,
-                                        _startTime.minute,
-                                      );
-                                      if (_endTime.isBefore(_startTime)) {
-                                        _endTime = _startTime.add(const Duration(hours: 1));
-                                      }
-                                    });
-                                  }
-                                },
+                      ListTile(
+                        title: Text(_isAllDay ? "Start Date" : "Start Time"),
+                        trailing: Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            TextButton.icon(
+                              label: Text(
+                                DateFormat('yyyy-MM-dd').format(_startTime),
+                                style: const TextStyle(color: Colors.black),
                               ),
+                              style: TextButton.styleFrom(
+                                backgroundColor: CupertinoColors.extraLightBackgroundGray,
+                                shape: const StadiumBorder(),
+                                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                              ),
+                              onPressed: () async {
+                                final DateTime? pickedDate = await showDatePicker(
+                                  context: context,
+                                  initialDate: _startTime,
+                                  firstDate: DateTime(2000),
+                                  lastDate: DateTime(2100),
+                                );
+                                if (pickedDate != null) {
+                                  setDialogState(() {
+                                    _startTime = DateTime(
+                                      pickedDate.year,
+                                      pickedDate.month,
+                                      pickedDate.day,
+                                      _isAllDay ? 0 : _startTime.hour,
+                                      _isAllDay ? 0 : _startTime.minute,
+                                    );
+                                    if (_endTime.isBefore(_startTime)) {
+                                      _endTime = _isAllDay
+                                          ? DateTime(pickedDate.year, pickedDate.month, pickedDate.day, 23, 59, 59)
+                                          : _startTime.add(const Duration(hours: 1));
+                                    }
+                                  });
+                                }
+                              },
+                            ),
+                            if (!_isAllDay)
                               TextButton(
                                 style: TextButton.styleFrom(
                                   backgroundColor: CupertinoColors.extraLightBackgroundGray,
@@ -340,48 +423,102 @@ class _CalendarPageState extends State<CalendarPage> {
                                   style: const TextStyle(color: Colors.black),
                                 ),
                               ),
-                            ],
+                            TextButton.icon(
+                              icon: const Icon(Icons.public, size: 16, color: Colors.black),
+                              label: Text(
+                                _startTimezone.split('/').last,
+                                style: const TextStyle(color: Colors.black, fontSize: 12),
+                              ),
+                              style: TextButton.styleFrom(
+                                backgroundColor: _showStartTimezonePicker
+                                    ? Colors.blue.shade100
+                                    : CupertinoColors.extraLightBackgroundGray,
+                                shape: const StadiumBorder(),
+                                padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
+                              ),
+                              onPressed: () {
+                                setDialogState(() {
+                                  _showStartTimezonePicker = !_showStartTimezonePicker;
+                                  if (_showStartTimezonePicker) {
+                                    _showEndTimezonePicker = false;
+                                  }
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (_showStartTimezonePicker)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6, bottom: 10),
+                          child: DropdownButtonFormField<String>(
+                            initialValue: _startTimezone,
+                            decoration: const InputDecoration(
+                              labelText: "Start Timezone",
+                              prefixIcon: Icon(Icons.public),
+                              border: OutlineInputBorder(),
+                            ),
+                            items: kSupportedTimezones.map((String tzName) {
+                              return DropdownMenuItem<String>(
+                                value: tzName,
+                                child: Text(tzName),
+                              );
+                            }).toList(),
+                            onChanged: (String? newValue) {
+                              if (newValue != null) {
+                                setDialogState(() {
+                                  _startTimezone = newValue;
+                                  _showStartTimezonePicker = false;
+                                });
+                              }
+                            },
                           ),
                         ),
-                        const Divider(height: 1),
-                        ListTile(
-                          title: const Text("End Time"),
-                          trailing: Wrap(
-                            spacing: 8,
-                            children: [
-                              TextButton.icon(
-                                label: Text(
-                                  DateFormat('yyyy-MM-dd').format(_endTime),
-                                  style: const TextStyle(color: Colors.black),
-                                ),
-                                style: TextButton.styleFrom(
-                                  backgroundColor: CupertinoColors.extraLightBackgroundGray,
-                                  shape: const StadiumBorder(),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                                ),
-                                onPressed: () async {
-                                  final DateTime? pickedDate = await showDatePicker(
-                                    context: context,
-                                    initialDate: _endTime,
-                                    firstDate: DateTime(2000),
-                                    lastDate: DateTime(2100),
-                                  );
-                                  if (pickedDate != null) {
-                                    setDialogState(() {
-                                      _endTime = DateTime(
-                                        pickedDate.year,
-                                        pickedDate.month,
-                                        pickedDate.day,
-                                        _endTime.hour,
-                                        _endTime.minute,
-                                      );
-                                      if (_startTime.isAfter(_endTime)) {
-                                        _startTime = _endTime.subtract(const Duration(hours: 1));
-                                      }
-                                    });
-                                  }
-                                },
+                      const Divider(height: 1),
+                      ListTile(
+                        title: Text(_isAllDay ? "End Date" : "End Time"),
+                        trailing: Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            TextButton.icon(
+                              label: Text(
+                                DateFormat('yyyy-MM-dd').format(_endTime),
+                                style: const TextStyle(color: Colors.black),
                               ),
+                              style: TextButton.styleFrom(
+                                backgroundColor: CupertinoColors.extraLightBackgroundGray,
+                                shape: const StadiumBorder(),
+                                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                              ),
+                              onPressed: () async {
+                                final DateTime? pickedDate = await showDatePicker(
+                                  context: context,
+                                  initialDate: _endTime,
+                                  firstDate: DateTime(2000),
+                                  lastDate: DateTime(2100),
+                                );
+                                if (pickedDate != null) {
+                                  setDialogState(() {
+                                    _endTime = DateTime(
+                                      pickedDate.year,
+                                      pickedDate.month,
+                                      pickedDate.day,
+                                      _isAllDay ? 23 : _endTime.hour,
+                                      _isAllDay ? 59 : _endTime.minute,
+                                      _isAllDay ? 59 : 0,
+                                    );
+                                    if (_startTime.isAfter(_endTime)) {
+                                      _startTime = _isAllDay
+                                          ? DateTime(pickedDate.year, pickedDate.month, pickedDate.day, 0, 0, 0)
+                                          : _endTime.subtract(const Duration(hours: 1));
+                                    }
+                                  });
+                                }
+                              },
+                            ),
+                            if (!_isAllDay)
                               TextButton(
                                 style: TextButton.styleFrom(
                                   backgroundColor: CupertinoColors.extraLightBackgroundGray,
@@ -413,10 +550,58 @@ class _CalendarPageState extends State<CalendarPage> {
                                   style: const TextStyle(color: Colors.black),
                                 ),
                               ),
-                            ],
+                            
+                            TextButton.icon(
+                              icon: const Icon(Icons.public, size: 16, color: Colors.black),
+                              label: Text(
+                                _endTimezone.split('/').last,
+                                style: const TextStyle(color: Colors.black, fontSize: 12),
+                              ),
+                              style: TextButton.styleFrom(
+                                backgroundColor: _showEndTimezonePicker
+                                    ? Colors.blue.shade100
+                                    : CupertinoColors.extraLightBackgroundGray,
+                                shape: const StadiumBorder(),
+                                padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
+                              ),
+                              onPressed: () {
+                                setDialogState(() {
+                                  _showEndTimezonePicker = !_showEndTimezonePicker;
+                                  if (_showEndTimezonePicker) {
+                                    _showStartTimezonePicker = false;
+                                  }
+                                });
+                              },
+                            ),  
+                          ],
+                        ),
+                      ),
+                      if (_showEndTimezonePicker)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6, bottom: 10),
+                          child: DropdownButtonFormField<String>(
+                            initialValue: _endTimezone,
+                            decoration: const InputDecoration(
+                              labelText: "End Timezone",
+                              prefixIcon: Icon(Icons.public),
+                              border: OutlineInputBorder(),
+                            ),
+                            items: kSupportedTimezones.map((String tzName) {
+                              return DropdownMenuItem<String>(
+                                value: tzName,
+                                child: Text(tzName),
+                              );
+                            }).toList(),
+                            onChanged: (String? newValue) {
+                              if (newValue != null) {
+                                setDialogState(() {
+                                  _endTimezone = newValue;
+                                  _showEndTimezonePicker = false;
+                                });
+                              }
+                            },
                           ),
                         ),
-                      ],
                       const Divider(height: 1),
                       Row(
                         children: [
@@ -425,7 +610,7 @@ class _CalendarPageState extends State<CalendarPage> {
                             onChanged: (bool? value) {
                               setDialogState(() {
                                 _isRepeating = value ?? false;
-                                if (_isRepeating && _repeatType == 'None') {
+                                if (_isRepeating && !_repeatOptions.contains(_repeatType)) {
                                   _repeatType = 'Daily';
                                 } else if (!_isRepeating) {
                                   _repeatType = 'None';
@@ -452,6 +637,10 @@ class _CalendarPageState extends State<CalendarPage> {
                               .toList(),
                           onChanged: (value) => setDialogState(() {
                             _repeatType = value!;
+                            final minYearlyEnd = DateTime(_startTime.year + 1, _startTime.month, _startTime.day);
+                            if (_repeatType == 'Yearly' && _repeatEndDate.isBefore(minYearlyEnd)) {
+                              _repeatEndDate = minYearlyEnd;
+                            }
                           }),
                         ),
                       ],
@@ -615,6 +804,9 @@ class _CalendarPageState extends State<CalendarPage> {
           'startTime': _formatToBackendIso(startTime),
           'endTime': _formatToBackendIso(endTime),
           'eventType': _eventType,
+          'timezone': _startTimezone,
+          'startTimezone': _startTimezone,
+          'endTimezone': _endTimezone,
           'isAllDay': _isAllDay,
           'isRepeating': _isRepeating,
           'repeatType': _isRepeating ? _repeatType : 'None',
@@ -651,6 +843,9 @@ class _CalendarPageState extends State<CalendarPage> {
           'startTime': _formatToBackendIso(startTime),
           'endTime': _formatToBackendIso(endTime),
           'eventType': _eventType,
+          'timezone': _startTimezone,
+          'startTimezone': _startTimezone,
+          'endTimezone': _endTimezone,
           'isAllDay': _isAllDay,
           'isRepeating': _isRepeating,
           'repeatType': _isRepeating ? _repeatType : 'None',
@@ -925,7 +1120,7 @@ class _CalendarPageState extends State<CalendarPage> {
                                             ),
                                             const SizedBox(width: 8),
                                             Text(
-                                              DateFormat('yyyy-MM-dd').format(event.startTime),
+                                              DateFormat('yyyy-MM-dd').format(event.displayStartTime),
                                               style: const TextStyle(fontSize: 12, color: Colors.grey),
                                             ),
                                           ],
@@ -937,8 +1132,8 @@ class _CalendarPageState extends State<CalendarPage> {
                                         onTap: () {
                                           Navigator.pop(context);
                                           setState(() {
-                                            _selectedDay = event.startTime;
-                                            _focusedDay = event.startTime;
+                                            _selectedDay = event.displayStartTime;
+                                            _focusedDay = event.displayStartTime;
                                           });
                                         },
                                       );
@@ -990,7 +1185,7 @@ class _CalendarPageState extends State<CalendarPage> {
                 eventLoader: (day) {
                   final dayStart = DateTime(day.year, day.month, day.day, 0, 0, 0);
                   final dayEnd = DateTime(day.year, day.month, day.day, 23, 59, 59);
-                  return _events.where((event) => event.startTime.isBefore(dayEnd) && event.endTime.isAfter(dayStart)).toList();
+                  return _events.where((event) => event.displayStartTime.isBefore(dayEnd) && event.displayEndTime.isAfter(dayStart)).toList();
                 },
                 onDaySelected: (selectedDay, focusedDay) {
                   setState(() {
@@ -1055,7 +1250,7 @@ class _CalendarPageState extends State<CalendarPage> {
                       subtitle: Text(
                         event.isAllDay
                             ? "All-Day"
-                            : "${DateFormat('MMM d, HH:mm').format(event.startTime)} - ${DateFormat('MMM d, HH:mm').format(event.endTime)}",
+                            : "${DateFormat('MMM d, HH:mm').format(event.displayStartTime)}(${event.startTimezone.split('/').last}) - ${DateFormat('MMM d, HH:mm').format(event.displayEndTime)}(${event.endTimezone.split('/').last})",
                       ),
                       onTap: () {
                         Navigator.push(
@@ -1069,7 +1264,7 @@ class _CalendarPageState extends State<CalendarPage> {
                               onEdit: (currentEventType) async {
                                 final bool? isUpdated = await _showAddEventDialog(
                                   context,
-                                  event.startTime,
+                                  event.displayStartTime,
                                   eventToEdit: event,
                                   initialEventType: currentEventType,
                                 );
