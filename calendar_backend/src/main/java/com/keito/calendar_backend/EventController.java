@@ -204,7 +204,7 @@ public class EventController {
         ZoneId eventZone = resolveZoneId(updatedEvent.getEventTimezone(), userDefaultZone);
         boolean shouldRepeat = Boolean.TRUE.equals(updatedEvent.getIsRepeating())
             && updatedEvent.getRepeatType() != null
-            && !updatedEvent.getRepeatedType().equals("None")
+            && !updatedEvent.getRepeatedType().equals("None");
 
         existing.setTitle(updatedEvent.getTitle());
         existing.setDescription(updatedEvent.getDescription());
