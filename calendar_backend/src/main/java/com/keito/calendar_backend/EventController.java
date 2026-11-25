@@ -1,277 +1,272 @@
 package com.keito.calendar_backend;
 
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
-
-import main.java.com.keito.calendar_backend.AuthService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.uttl.Map;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/events")
 public class EventController {
+
     private final EventRepository eventRepository;
     private final UserRepository userRepository;
     private final AuthService authService;
 
     public EventController(
-        EventRepository eventRepository, 
-        UserRepository userRepository,
-        AuthService authService
+            EventRepository eventRepository,
+            UserRepository userRepository,
+            AuthService authService
     ) {
         this.eventRepository = eventRepository;
         this.userRepository = userRepository;
         this.authService = authService;
     }
-    /*
-    private Long requireUserId(String authHeader) {
+
+    private Optional<User> getAuthenticatedUser(String authHeader) {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing or invalid Authorization header");
+            return Optional.empty();
         }
-        String token = authHeader.substring(7).trim();
+        String token = authHeader.substring(7);
         return authService.parseUserIdFromToken(token)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid or expired token"));
-    }*/
-
-    @GetMapping
-    public List<DailyEvent> getAllEvents(@RequestHeader("Authorization") String authHeader) {
-        Long userId = requireUserId(authHeader); // Replace null with the actual Authorization header if needed
-        return repository.findByUserId(userId);
+                .flatMap(userRepository::findById);
     }
 
-    @PostMapping({"", "/"})
-    public ResponseEntity<Void> createEvent(
-        @RequestHeader("Authorization") String authHeader, 
-        @RequestBody DailyEvent event
-    ) {
-        Long userId = requireUserId(authHeader);
-        event.setUserId(userId);
-
-        //List<DailyEvent> eventsToSave = new ArrayList<>();
-        if(!event.getIsRepeating() || event.getRepeatType() == null){
-            //eventsToSave.add(repository.save(event));
-            repository.save(event);
-            //return eventsToSave;
-            return ResponseEntity.ok().build();
+    private ZoneId resolveZoneId(String zoneStr, ZoneId fallback) {
+        if (zoneStr == null || zoneStr.isBlank()) {
+            return fallback;
         }
-        String seriesId = UUID.randomUUID().toString();
-        LocalDateTime currentStartTime = event.getStartTime();
-        LocalDateTime currentEndTime = event.getEndTime();
-        LocalDateTime repeatEndDate = event.getRepeatEndOn();
-        String repeatType = event.getRepeatType();
-        List<DailyEvent> eventsToSave = new ArrayList<>();
-        int maxCount = 365; // Limit to prevent infinite loops
-        for(int i = 0; i < maxCount; i++){
-            if(repeatEndDate != null && currentStartTime.isAfter(repeatEndDate)){
-                break;
-            }
-            DailyEvent repeatedEvent = new DailyEvent(
-                event.getTitle(),
-                event.getDescription(),
-                currentStartTime,
-                currentEndTime,
-                event.getEventType(),
-                event.getIsAllDay(),
-                true
-            );
-            repeatedEvent.setUserId(userId);
-            repeatedEvent.setRepeatType(repeatType);
-            repeatedEvent.setSeriesId(seriesId);
-            repeatedEvent.setRepeatEndOn(repeatEndDate);
-            repeatedEvent.setEndOn(event.getEndOn());
-            eventsToSave.add(repeatedEvent);
-
-            if("Daily".equalsIgnoreCase(repeatType)){
-                currentStartTime = currentStartTime.plusDays(1);
-                currentEndTime = currentEndTime.plusDays(1);
-            }else if("Weekly".equalsIgnoreCase(repeatType)){
-                currentStartTime = currentStartTime.plusWeeks(1);
-                currentEndTime = currentEndTime.plusWeeks(1);
-            }else if("Biweekly".equalsIgnoreCase(repeatType)){
-                currentStartTime = currentStartTime.plusWeeks(2);
-                currentEndTime = currentEndTime.plusWeeks(2);
-            }else if("monthly".equalsIgnoreCase(repeatType)){
-                currentStartTime = currentStartTime.plusMonths(1);
-                currentEndTime = currentEndTime.plusMonths(1);
-                break;
-            }else if("yearly".equalsIgnoreCase(repeatType)){
-                currentStartTime = currentStartTime.plusYears(1);
-                currentEndTime = currentEndTime.plusYears(1);
-            }else{
-                break;
-            }
-        }
-        repository.saveAll(eventsToSave);
-        return ResponseEntity.ok().build();
-    }
-        
-    @DeleteMapping("/{id}")
-    public void deleteEvent(
-        @RequestHeader("Authorization") String authHeader,
-        @PathVariable Long id
-    ){
-        Long userId = requireUserId(authHeader);
-        repository.deleteByIdAndUserId(id, userId);
-    }
-
-    @DeleteMapping("/future/{id}")
-    public ResponseEntity<Void> deleteFutureEvents(
-        @RequestHeader("Authorization") String authHeader,
-        @PathVariable Long id
-    ){
-        Long userId = requireUserId(authHeader);
-        DailyEvent targetEvent = repository.findByIdAndUserId(id, userId).orElse(null);
-        if(targetEvent == null) return ResponseEntity.notFound().build();
-        if(targetEvent.getSeriesId() != null && !targetEvent.getSeriesId().isEmpty()){
-            String seriesId = targetEvent.getSeriesId();
-            repository.deleteBySeriesIdAndStartTimeGreaterThanEqualAndUserId(
-                seriesId, 
-                targetEvent.getStartTime(), 
-                userId
-            );
-            java.util.List<DailyEvent> remainingEvents = repository.findBySeriesIdAndUserId(seriesId, userId);
-            if(remainingEvents.size() >= 1){
-                DailyEvent lastEvent = remainingEvents.get(remainingEvents.size() - 1);
-                lastEvent.setIsRepeating(false);
-                lastEvent.setRepeatType(null);
-                repository.save(lastEvent);
-            }
-            repository.deleteByIdAndUserId(id, userId);
-        }
-        return ResponseEntity.ok().build();
-    }
-
-    @PutMapping("/{id}")
-    public List<DailyEvent> updateEvent(
-        @RequestHeader("Authorization") String authHeader,
-        @PathVariable Long id,
-        @RequestBody DailyEvent updatedEvent
-    ){
-        Long userId = requireUserId(authHeader);
-        DailyEvent existingEvent = repository.findByIdAndUserId(id, userId).orElse(null);
-        List<DailyEvent> eventsToSave = new ArrayList<>();
-        if(existingEvent == null){
-            updatedEvent.setId(id);
-            eventsToSave.add(repository.save(updatedEvent));
-            return eventsToSave;
-        }
-        if(existingEvent.getSeriesId() != null && !existingEvent.getSeriesId().isEmpty()){
-            repository.deleteBySeriesIdAndStartTimeGreaterThanEqualAndUserId(
-                existingEvent.getSeriesId(),
-                existingEvent.getStartTime(),
-                userId
-            );
-        }else{
-            repository.deleteByIdAndUserId(id, userId);
-        }
-        if(!updatedEvent.getIsRepeating() || updatedEvent.getRepeatType() == null){
-            updatedEvent.setId(null);
-            eventsToSave.add(repository.save(updatedEvent));
-            return repository.saveAll(eventsToSave);
-        }
-        String seriesId = (existingEvent.getSeriesId() != null && !existingEvent.getSeriesId().isEmpty())
-            ? existingEvent.getSeriesId()
-            : UUID.randomUUID().toString();
-        LocalDateTime currentStartTime = updatedEvent.getStartTime();
-        LocalDateTime currentEndTime = updatedEvent.getEndTime();
-        LocalDateTime repeatEndDate = updatedEvent.getRepeatEndOn();
-        String repeatType = updatedEvent.getRepeatType();
-        int maxCount = 1000;
-        for(int i=0; i<maxCount; i++){
-            if(repeatEndDate != null && currentStartTime.isAfter(repeatEndDate)){
-                break;
-            }
-            DailyEvent repeatedEvent = new DailyEvent(
-                updatedEvent.getTitle(),
-                updatedEvent.getDescription(),
-                currentStartTime,
-                currentEndTime,
-                updatedEvent.getEventType(),
-                updatedEvent.getIsAllDay(),
-                true
-            );
-            repeatedEvent.setRepeatType(repeatType);
-            repeatedEvent.setSeriesId(seriesId);
-            repeatedEvent.setRepeatEndOn(repeatEndDate);
-            repeatedEvent.setEndOn(updatedEvent.getEndOn());
-            eventsToSave.add(repeatedEvent);
-            if("Daily".equalsIgnoreCase(repeatType)){
-                currentStartTime = currentStartTime.plusDays(1);
-                currentEndTime = currentEndTime.plusDays(1);
-            }else if("Weekly".equalsIgnoreCase(repeatType)){
-                currentStartTime = currentStartTime.plusWeeks(1);
-                currentEndTime = currentEndTime.plusWeeks(1);
-            }else if("Biweekly".equalsIgnoreCase(repeatType)){
-                currentStartTime = currentStartTime.plusWeeks(2);
-                currentEndTime = currentEndTime.plusWeeks(2);
-            }else if("monthly".equalsIgnoreCase(repeatType)){
-                currentStartTime = currentStartTime.plusMonths(1);
-                currentEndTime = currentEndTime.plusMonths(1);
-                break;
-            }else if("yearly".equalsIgnoreCase(repeatType)){
-                currentStartTime = currentStartTime.plusYears(1);
-                currentEndTime = currentEndTime.plusYears(1);
-            }else{
-                break;
-            }
-        }
-        return repository.saveAll(eventsToSave);
-    }
-
-    @PostMapping("/batch")
-    public List<DailyEvent> createEvents(
-        @RequestHeader("Authorization") String authHeader,
-        @RequestBody List<DailyEvent> events
-    ) {
-        Long userId = requireUserId(authHeader);
-        for (DailyEvent event : events) {
-            event.setUserId(userId);
-        }
-        return repository.saveAll(events);
-    }
-
-    private void normalizeEventTimesToUserTimezone(DailyEvent event, Long userId) {
-        if (event.getEventTimezone() == null || event.getEventTimezone().isBlank()) {
-            return;
-        }
-        User user = userRepository.findById(userId).orElse(null);
-        if (user == null) return;
-
         try {
-            ZoneId sourceZone = ZoneId.of(event.getEventTimezone());
-            ZoneId targetZone = ZoneId.of(user.getTimezone());
-            if (!sourceZone.equals(targetZone)) {
-                if (event.getStartTime() != null) {
-                    event.setStartTime(
-                            ZonedDateTime.of(event.getStartTime(), sourceZone)
-                                    .withZoneSameInstant(targetZone)
-                                    .toLocalDateTime()
-                    );
+            return ZoneId.of(zoneStr.trim());
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
+
+    private LocalDateTime toUtc(LocalDateTime localDateTime, ZoneId sourceZone) {
+        if (localDateTime == null) return null;
+        return ZonedDateTime.of(localDateTime, sourceZone)
+                .withZoneSameInstant(ZoneOffset.UTC)
+                .toLocalDateTime();
+    }
+
+    private LocalDateTime fromUtc(LocalDateTime utcDateTime, ZoneId targetZone) {
+        if (utcDateTime == null) return null;
+        return ZonedDateTime.of(utcDateTime, ZoneOffset.UTC)
+                .withZoneSameInstant(targetZone)
+                .toLocalDateTime();
+    }
+
+    // 1. イベント一覧取得（DBのUTC時刻をユーザーのタイムゾーンに変換して返却）
+    @GetMapping
+    @Transactional(readOnly = true)
+    public ResponseEntity<?> getAllEvents(
+            @RequestHeader(value = "Authorization", required = false) String authHeader
+    ) {
+        Optional<User> userOpt = getAuthenticatedUser(authHeader);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Unauthorized"));
+        }
+
+        User user = userOpt.get();
+        ZoneId userZone = resolveZoneId(user.getTimezone(), ZoneOffset.UTC);
+
+        List<DailyEvent> events = eventRepository.findByUserId(user.getId());
+        for (DailyEvent event : events) {
+            event.setStartTime(fromUtc(event.getStartTime(), userZone));
+            event.setEndTime(fromUtc(event.getEndTime(), userZone));
+            event.setRepeatEndOn(fromUtc(event.getRepeatEndOn(), userZone));
+        }
+        return ResponseEntity.ok(events);
+    }
+
+    // 2. 新規イベント作成（isAllDayも含め、timezoneを保存し時刻をUTCに統一して保存）
+    @PostMapping({"", "/"})
+    public ResponseEntity<?> createEvent(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestBody DailyEvent event
+    ) {
+        Optional<User> userOpt = getAuthenticatedUser(authHeader);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Unauthorized"));
+        }
+
+        User user = userOpt.get();
+        ZoneId userDefaultZone = resolveZoneId(user.getTimezone(), ZoneOffset.UTC);
+        // リクエストにtimezoneが含まれていればそれを使用、なければユーザーのデフォルトを使用
+        ZoneId eventZone = resolveZoneId(event.getTimezone(), userDefaultZone);
+
+        if (!event.isRepeating() || event.getRepeatType() == null || event.getRepeatType().equals("None")) {
+            event.setUserId(user.getId());
+            event.setTimezone(eventZone.getId());
+            event.setStartTime(toUtc(event.getStartTime(), eventZone));
+            event.setEndTime(toUtc(event.getEndTime(), eventZone));
+            event.setRepeatEndOn(toUtc(event.getRepeatEndOn(), eventZone));
+
+            DailyEvent saved = eventRepository.save(event);
+            return ResponseEntity.status(HttpStatus.CREATED).body(saved);
+        }
+
+        // 繰り返し予定の場合：eventZone上で日付を進めてから各回をUTCに変換して保存
+        String seriesId = UUID.randomUUID().toString();
+        List<DailyEvent> eventsToSave = new ArrayList<>();
+
+        ZonedDateTime currentStart = ZonedDateTime.of(event.getStartTime(), eventZone);
+        ZonedDateTime currentEnd = ZonedDateTime.of(event.getEndTime(), eventZone);
+        ZonedDateTime limitDate = (event.isEndOn() && event.getRepeatEndOn() != null)
+                ? ZonedDateTime.of(event.getRepeatEndOn(), eventZone)
+                : currentStart.plusYears(1);
+
+        int safetyCount = 0;
+        while (!currentStart.isAfter(limitDate) && safetyCount < 366) {
+            DailyEvent occurrence = new DailyEvent(
+                    event.getTitle(),
+                    event.getDescription(),
+                    currentStart.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime(),
+                    currentEnd.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime(),
+                    event.getEventType(),
+                    event.isAllDay(),
+                    true
+            );
+            occurrence.setUserId(user.getId());
+            occurrence.setTimezone(eventZone.getId());
+            occurrence.setRepeatType(event.getRepeatType());
+            occurrence.setEndOn(event.isEndOn());
+            occurrence.setRepeatEndOn(toUtc(event.getRepeatEndOn(), eventZone));
+            occurrence.setSeriesId(seriesId);
+
+            eventsToSave.add(occurrence);
+
+            switch (event.getRepeatType()) {
+                case "Daily" -> {
+                    currentStart = currentStart.plusDays(1);
+                    currentEnd = currentEnd.plusDays(1);
                 }
-                if (event.getEndTime() != null) {
-                    event.setEndTime(
-                            ZonedDateTime.of(event.getEndTime(), sourceZone)
-                                    .withZoneSameInstant(targetZone)
-                                    .toLocalDateTime()
-                    );
+                case "Weekly" -> {
+                    currentStart = currentStart.plusWeeks(1);
+                    currentEnd = currentEnd.plusWeeks(1);
                 }
-                if (event.getRepeatEndOn() != null) {
-                    event.setRepeatEndOn(
-                            ZonedDateTime.of(event.getRepeatEndOn(), sourceZone)
-                                    .withZoneSameInstant(targetZone)
-                                    .toLocalDateTime()
-                    );
+                case "Biweekly" -> {
+                    currentStart = currentStart.plusWeeks(2);
+                    currentEnd = currentEnd.plusWeeks(2);
+                }
+                case "Monthly" -> {
+                    currentStart = currentStart.plusMonths(1);
+                    currentEnd = currentEnd.plusMonths(1);
+                }
+                case "Yearly" -> {
+                    currentStart = currentStart.plusYears(1);
+                    currentEnd = currentEnd.plusYears(1);
+                }
+                default -> {
+                    currentStart = limitDate.plusDays(1);
                 }
             }
-        } catch (Exception ignored) {}            
+            safetyCount++;
+        }
+
+        List<DailyEvent> savedList = eventRepository.saveAll(eventsToSave);
+        return ResponseEntity.status(HttpStatus.CREATED).body(savedList);
+    }
+
+    // 3. イベント更新（isAllDayも含め、timezoneを保存し時刻をUTCに統一して保存）
+    @PutMapping("/{id}")
+    public ResponseEntity<?> updateEvent(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @PathVariable Long id,
+            @RequestBody DailyEvent updatedEvent
+    ) {
+        Optional<User> userOpt = getAuthenticatedUser(authHeader);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Unauthorized"));
+        }
+
+        User user = userOpt.get();
+        Optional<DailyEvent> existingOpt = eventRepository.findById(id);
+        if (existingOpt.isEmpty() || !user.getId().equals(existingOpt.get().getUserId())) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Event not found"));
+        }
+
+        DailyEvent existing = existingOpt.get();
+        ZoneId userDefaultZone = resolveZoneId(user.getTimezone(), ZoneOffset.UTC);
+        ZoneId eventZone = resolveZoneId(updatedEvent.getTimezone(), userDefaultZone);
+
+        existing.setTitle(updatedEvent.getTitle());
+        existing.setDescription(updatedEvent.getDescription());
+        existing.setEventType(updatedEvent.getEventType());
+        existing.setAllDay(updatedEvent.isAllDay());
+        existing.setTimezone(eventZone.getId());
+        existing.setStartTime(toUtc(updatedEvent.getStartTime(), eventZone));
+        existing.setEndTime(toUtc(updatedEvent.getEndTime(), eventZone));
+        existing.setRepeating(updatedEvent.isRepeating());
+        existing.setRepeatType(updatedEvent.getRepeatType());
+        existing.setEndOn(updatedEvent.isEndOn());
+        existing.setRepeatEndOn(toUtc(updatedEvent.getRepeatEndOn(), eventZone));
+
+        DailyEvent saved = eventRepository.save(existing);
+        return ResponseEntity.ok(saved);
+    }
+
+    // 4. 単一イベント削除
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> deleteEvent(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @PathVariable Long id
+    ) {
+        Optional<User> userOpt = getAuthenticatedUser(authHeader);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Unauthorized"));
+        }
+
+        Optional<DailyEvent> existingOpt = eventRepository.findById(id);
+        if (existingOpt.isEmpty() || !userOpt.get().getId().equals(existingOpt.get().getUserId())) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Event not found"));
+        }
+
+        eventRepository.delete(existingOpt.get());
+        return ResponseEntity.noContent().build();
+    }
+
+    // 5. 繰り返しイベントの以降一括削除
+    @DeleteMapping("/future/{id}")
+    @Transactional
+    public ResponseEntity<?> deleteFutureEvents(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @PathVariable Long id
+    ) {
+        Optional<User> userOpt = getAuthenticatedUser(authHeader);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Unauthorized"));
+        }
+
+        Long userId = userOpt.get().getId();
+        Optional<DailyEvent> targetOpt = eventRepository.findById(id);
+        if (targetOpt.isEmpty() || !userId.equals(targetOpt.get().getUserId())) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Event not found"));
+        }
+
+        DailyEvent target = targetOpt.get();
+        if (target.getSeriesId() == null) {
+            eventRepository.delete(target);
+            return ResponseEntity.noContent().build();
+        }
+
+        List<DailyEvent> toDelete = eventRepository.findByUserId(userId).stream()
+                .filter(e -> target.getSeriesId().equals(e.getSeriesId()))
+                .filter(e -> e.getStartTime() != null && !e.getStartTime().isBefore(target.getStartTime()))
+                .toList();
+
+        eventRepository.deleteAll(toDelete);
+        return ResponseEntity.noContent().build();
     }
 }

@@ -4,6 +4,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.keito.calendar_backend.EventRepository;
+import com.keito.calendar_backend.User;
+import com.keito.calendar_backend.UserRepository;
+
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
@@ -74,50 +78,12 @@ public class UserController {
         // 1. タイムゾーン更新 & 既存イベントの時刻変換
         if (request.get("timezone") != null) {
             String newTimezoneStr = request.get("timezone").toString().trim();
-            boolean convertExistingEvents = Boolean.TRUE.equals(request.get("convertExistingEvents"));
-
-            ZoneId newZone;
             try {
-                newZone = ZoneId.of(newTimezoneStr);
+                ZoneId validZone = ZoneId.of(newTimezoneStr);
+                user.setTimezone(validZone.getId());
             } catch (Exception e) {
                 return ResponseEntity.badRequest().body(Map.of("error", "Invalid timezone: " + newTimezoneStr));
             }
-
-            ZoneId oldZone;
-            try {
-                oldZone = ZoneId.of(user.getTimezone());
-            } catch (Exception e) {
-                oldZone = ZoneId.of("UTC");
-            }
-
-            if (convertExistingEvents && !oldZone.equals(newZone)) {
-                List<DailyEvent> events = eventRepository.findByUserId(user.getId());
-                for (DailyEvent event : events) {
-                    if (event.getStartTime() != null) {
-                        event.setStartTime(
-                                ZonedDateTime.of(event.getStartTime(), oldZone)
-                                        .withZoneSameInstant(newZone)
-                                        .toLocalDateTime()
-                        );
-                    }
-                    if (event.getEndTime() != null) {
-                        event.setEndTime(
-                                ZonedDateTime.of(event.getEndTime(), oldZone)
-                                        .withZoneSameInstant(newZone)
-                                        .toLocalDateTime()
-                        );
-                    }
-                    if (event.getRepeatEndOn() != null) {
-                        event.setRepeatEndOn(
-                                ZonedDateTime.of(event.getRepeatEndOn(), oldZone)
-                                        .withZoneSameInstant(newZone)
-                                        .toLocalDateTime()
-                        );
-                    }
-                }
-                eventRepository.saveAll(events);
-            }
-            user.setTimezone(newZone.getId());
         }
 
         // 2. 言語設定更新
@@ -125,6 +91,8 @@ public class UserController {
             String lang = request.get("language").toString().trim();
             if (lang.equals("en") || lang.equals("ja")) {
                 user.setLanguage(lang);
+            } else {
+                return ResponseEntity.badRequest().body(Map.of("error", "Unsupported language: " + lang));
             }
         }
 
