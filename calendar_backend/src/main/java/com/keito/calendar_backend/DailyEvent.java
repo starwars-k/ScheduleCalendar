@@ -25,6 +25,7 @@ public class DailyEvent {
     private LocalDateTime endTime;
     @JsonProperty("timezone")
     private String eventTimezone = "UTC";
+    @JsonProperty("isRepeating")
     private boolean isRepeating;
     private String repeatType;
     private boolean endOn;

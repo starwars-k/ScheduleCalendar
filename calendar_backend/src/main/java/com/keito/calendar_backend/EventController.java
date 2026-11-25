@@ -5,6 +5,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
+import main.java.com.keito.calendar_backend.AuthService;
+
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -200,6 +202,9 @@ public class EventController {
         DailyEvent existing = existingOpt.get();
         ZoneId userDefaultZone = resolveZoneId(user.getTimezone(), ZoneOffset.UTC);
         ZoneId eventZone = resolveZoneId(updatedEvent.getEventTimezone(), userDefaultZone);
+        boolean shouldRepeat = Boolean.TRUE.equals(updatedEvent.getIsRepeating())
+            && updatedEvent.getRepeatType() != null
+            && !updatedEvent.getRepeatedType().equals("None")
 
         existing.setTitle(updatedEvent.getTitle());
         existing.setDescription(updatedEvent.getDescription());
@@ -208,11 +213,82 @@ public class EventController {
         existing.setEventTimezone(eventZone.getId());
         existing.setStartTime(toUtc(updatedEvent.getStartTime(), eventZone));
         existing.setEndTime(toUtc(updatedEvent.getEndTime(), eventZone));
-        existing.setIsRepeating(Boolean.TRUE.equals(updatedEvent.getIsRepeating()));
-        existing.setRepeatType(updatedEvent.getRepeatType());
-        existing.setEndOn(Boolean.TRUE.equals(updatedEvent.getEndOn()));
-        existing.setRepeatEndOn(toUtc(updatedEvent.getRepeatEndOn(), eventZone));
+        existing.setIsRepeating(shouldRepeat);
+        existing.setRepeatType(shouldRepeat ? updatedEvent.getRepeatType() : "None");
+        existing.setEndOn(shouldRepeat && Boolean.TRUE.equals(updatedEvent.getEndOn()));
+        existing.setRepeatEndOn(shouldRepeat ? toUtc(updatedEvent.getRepeatEndOn(), eventZone) : null);
 
+        if(!shouldRepeat){
+            existing.setSeriesId(null);
+            DailyEvent saved = eventRespository.save(existing);
+            return ResponseEntity.ok(saved);
+        }
+        if(existing.getSeriesId() == null || existing.getSeriesId().isBlank()){
+            String seriesId = UUID.randomUUID().toString();
+            existing.setSeriesId(seriesId);
+            DailyEvent savedFirst = eventRepository.save(existing);
+
+            List<DailyEvent> additionalEvents = new ArrayList<>();
+            ZonedDateTime currentStart = ZonedDateTime.of(updatedEvent.getStartTime(), eventZone);
+            ZonedDateTime currentEnd = ZonedDateTime.of(updatedEvent.getEndTime(), eventZone);
+            ZonedDateTime limitDate = (Boolean.TRUE.equals(updatedEvent.getEndOn()) && updatedEvent.getRepeatEndOn() != null)
+                    ? ZonedDateTime.of(updatedEvent.getRepeatEndOn(), eventZone)
+                    : currentStart.plusYears(1);
+
+            int safetyCount = 1;
+            while (safetyCount < 366) {
+                switch (updatedEvent.getRepeatType()) {
+                    case "Daily" -> {
+                        currentStart = currentStart.plusDays(1);
+                        currentEnd = currentEnd.plusDays(1);
+                    }
+                    case "Weekly" -> {
+                        currentStart = currentStart.plusWeeks(1);
+                        currentEnd = currentEnd.plusWeeks(1);
+                    }
+                    case "Biweekly" -> {
+                        currentStart = currentStart.plusWeeks(2);
+                        currentEnd = currentEnd.plusWeeks(2);
+                    }
+                    case "Monthly" -> {
+                        currentStart = currentStart.plusMonths(1);
+                        currentEnd = currentEnd.plusMonths(1);
+                    }
+                    case "Yearly" -> {
+                        currentStart = currentStart.plusYears(1);
+                        currentEnd = currentEnd.plusYears(1);
+                    }
+                    default -> {
+                        currentStart = limitDate.plusDays(1);
+                    }
+                }
+                if (currentStart.isAfter(limitDate)) break;
+
+                DailyEvent occurrence = new DailyEvent(
+                        updatedEvent.getTitle(),
+                        updatedEvent.getDescription(),
+                        currentStart.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime(),
+                        currentEnd.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime(),
+                        updatedEvent.getEventType(),
+                        Boolean.TRUE.equals(updatedEvent.getIsAllDay()),
+                        true
+                );
+                occurrence.setUserId(user.getId());
+                occurrence.setEventTimezone(eventZone.getId());
+                occurrence.setRepeatType(updatedEvent.getRepeatType());
+                occurrence.setEndOn(Boolean.TRUE.equals(updatedEvent.getEndOn()));
+                occurrence.setRepeatEndOn(toUtc(updatedEvent.getRepeatEndOn(), eventZone));
+                occurrence.setSeriesId(seriesId);
+
+                additionalEvents.add(occurrence);
+                safetyCount++;
+            }
+
+            if (!additionalEvents.isEmpty()) {
+                eventRepository.saveAll(additionalEvents);
+            }
+            return ResponseEntity.ok(savedFirst);
+        }
         DailyEvent saved = eventRepository.save(existing);
         return ResponseEntity.ok(saved);
     }
