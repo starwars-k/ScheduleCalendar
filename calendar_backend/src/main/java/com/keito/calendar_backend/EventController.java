@@ -104,11 +104,11 @@ public class EventController {
         User user = userOpt.get();
         ZoneId userDefaultZone = resolveZoneId(user.getTimezone(), ZoneOffset.UTC);
         // リクエストにtimezoneが含まれていればそれを使用、なければユーザーのデフォルトを使用
-        ZoneId eventZone = resolveZoneId(event.getTimezone(), userDefaultZone);
+        ZoneId eventZone = resolveZoneId(event.getEventTimezone(), userDefaultZone);
 
-        if (!event.isRepeating() || event.getRepeatType() == null || event.getRepeatType().equals("None")) {
+        if (!Boolean.TRUE.equals(event.getIsRepeating()) || event.getRepeatType() == null || event.getRepeatType().equals("None")) {
             event.setUserId(user.getId());
-            event.setTimezone(eventZone.getId());
+            event.setEventTimezone(eventZone.getId());
             event.setStartTime(toUtc(event.getStartTime(), eventZone));
             event.setEndTime(toUtc(event.getEndTime(), eventZone));
             event.setRepeatEndOn(toUtc(event.getRepeatEndOn(), eventZone));
@@ -123,7 +123,7 @@ public class EventController {
 
         ZonedDateTime currentStart = ZonedDateTime.of(event.getStartTime(), eventZone);
         ZonedDateTime currentEnd = ZonedDateTime.of(event.getEndTime(), eventZone);
-        ZonedDateTime limitDate = (event.isEndOn() && event.getRepeatEndOn() != null)
+        ZonedDateTime limitDate = (Boolean.TRUE.equals(event.getEndOn()) && event.getRepeatEndOn() != null)
                 ? ZonedDateTime.of(event.getRepeatEndOn(), eventZone)
                 : currentStart.plusYears(1);
 
@@ -135,13 +135,13 @@ public class EventController {
                     currentStart.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime(),
                     currentEnd.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime(),
                     event.getEventType(),
-                    event.isAllDay(),
+                    Boolean.TRUE.equals(event.getIsAllDay()),
                     true
             );
             occurrence.setUserId(user.getId());
-            occurrence.setTimezone(eventZone.getId());
+            occurrence.setEventTimezone(eventZone.getId());
             occurrence.setRepeatType(event.getRepeatType());
-            occurrence.setEndOn(event.isEndOn());
+            occurrence.setEndOn(Boolean.TRUE.equals(event.getEndOn()));
             occurrence.setRepeatEndOn(toUtc(event.getRepeatEndOn(), eventZone));
             occurrence.setSeriesId(seriesId);
 
@@ -199,18 +199,18 @@ public class EventController {
 
         DailyEvent existing = existingOpt.get();
         ZoneId userDefaultZone = resolveZoneId(user.getTimezone(), ZoneOffset.UTC);
-        ZoneId eventZone = resolveZoneId(updatedEvent.getTimezone(), userDefaultZone);
+        ZoneId eventZone = resolveZoneId(updatedEvent.getEventTimezone(), userDefaultZone);
 
         existing.setTitle(updatedEvent.getTitle());
         existing.setDescription(updatedEvent.getDescription());
         existing.setEventType(updatedEvent.getEventType());
-        existing.setAllDay(updatedEvent.isAllDay());
-        existing.setTimezone(eventZone.getId());
+        existing.setIsAllDay(Boolean.TRUE.equals(updatedEvent.getIsAllDay()));
+        existing.setEventTimezone(eventZone.getId());
         existing.setStartTime(toUtc(updatedEvent.getStartTime(), eventZone));
         existing.setEndTime(toUtc(updatedEvent.getEndTime(), eventZone));
-        existing.setRepeating(updatedEvent.isRepeating());
+        existing.setIsRepeating(Boolean.TRUE.equals(updatedEvent.getIsRepeating()));
         existing.setRepeatType(updatedEvent.getRepeatType());
-        existing.setEndOn(updatedEvent.isEndOn());
+        existing.setEndOn(Boolean.TRUE.equals(updatedEvent.getEndOn()));
         existing.setRepeatEndOn(toUtc(updatedEvent.getRepeatEndOn(), eventZone));
 
         DailyEvent saved = eventRepository.save(existing);

@@ -2,8 +2,8 @@ package com.keito.calendar_backend;
 
 import jakarta.persistence.*;
 
-import java.beans.Transient;
 import java.time.LocalDateTime;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonFormat;
 
@@ -23,6 +23,8 @@ public class DailyEvent {
     private LocalDateTime startTime;
     @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS")
     private LocalDateTime endTime;
+    @JsonProperty("timezone")
+    private String eventTimezone = "UTC";
     private boolean isRepeating;
     private String repeatType;
     private boolean endOn;
@@ -31,8 +33,7 @@ public class DailyEvent {
     private String description;
     private String eventType;
     private String seriesId;
-    @Transient
-    final private String timezone = "UTC";
+  
     public DailyEvent(){}
     
     public DailyEvent(String title, String description, LocalDateTime startTime, LocalDateTime endTime, String eventType, boolean isAllDay, boolean isRepeating){
@@ -84,6 +85,6 @@ public class DailyEvent {
     public String getSeriesId(){return seriesId;}
     public void setSeriesId(String seriesId){this.seriesId = seriesId;}
 
-    public String getTimezone(){return timezone;}
-    public void setTimezone(String eventTimezone){this.timezone = timezone;}
+    public String getEventTimezone(){return eventTimezone;}
+    public void setEventTimezone(String eventTimezone){this.eventTimezone = eventTimezone;}
 }

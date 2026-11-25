@@ -45,21 +45,24 @@ public class User {
     public String getPasswordHash() {return passwordHash;}
     public void setPasswordHash(String passwordHash) {this.passwordHash = passwordHash;}
 
-    public String getTimezone() {return timezone;}
+    public String getTimezone() {return timezone != null ? timezone : "UTC";}
     public void setTimezone(String timezone) {this.timezone = timezone;}
 
-    public String getLanguage() {return language;}
+    public String getLanguage() {return language != null ? language : "en";}
     public void setLanguage(String language) {this.language = language;}
 
+    public boolean isEnableTodoList() {return Boolean.TRUE.equals(enableTodoList);}
     public Boolean getEnableTodoList() {return enableTodoList;}
     public void setEnableTodoList(Boolean enableTodoList) {this.enableTodoList = enableTodoList;}
 
+    public boolean isEnablePayroll() {return Boolean.TRUE.equals(enablePayroll);}
     public Boolean getEnableNotification() {return enableNotification;}
     public void setEnableNotification(Boolean enableNotification) {this.enableNotification = enableNotification;}
 
     public Boolean getEnablePayroll() {return enablePayroll;}
     public void setEnablePayroll(Boolean enablePayroll) {this.enablePayroll = enablePayroll;}
 
+    public boolean isSetupCompleted() {return Boolean.TRUE.equals(setupCompleted);}
     public Boolean getSetupCompleted() {return setupCompleted;}
     public void setSetupCompleted(Boolean setupCompleted) {this.setupCompleted = setupCompleted;}
 }
