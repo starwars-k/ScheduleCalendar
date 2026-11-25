@@ -25,6 +25,10 @@ public class DailyEvent {
     private LocalDateTime endTime;
     @JsonProperty("timezone")
     private String eventTimezone = "UTC";
+    @JsonProperty("startTimezone")
+    private String startTimezone = "UTC";
+    @JsonProperty("endTimezone")
+    private String endTimezone = "UTC";
     @JsonProperty("isRepeating")
     private boolean isRepeating;
     private String repeatType;
@@ -88,4 +92,10 @@ public class DailyEvent {
 
     public String getEventTimezone(){return eventTimezone;}
     public void setEventTimezone(String eventTimezone){this.eventTimezone = eventTimezone;}
+
+    public String getStartTimezone(){return startTimezone != null ? startTimezone : eventTimezone;}
+    public void setStartTimezone(String startTimezone){this.startTimezone = startTimezone;}
+
+    public String getEndTimezone(){return endTimezone != null ? endTimezone : eventTimezone;}
+    public void setEndTimezone(String endTimezone){this.endTimezone = endTimezone;}
 }
