@@ -5,6 +5,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
+import main.java.com.keito.calendar_backend.AuthService;
+import main.java.com.keito.calendar_backend.TodoItem;
+import main.java.com.keito.calendar_backend.TodoRepository;
+
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -22,15 +26,18 @@ public class EventController {
     private final EventRepository eventRepository;
     private final UserRepository userRepository;
     private final AuthService authService;
+    private final TodoRepository todoRepository;
 
     public EventController(
             EventRepository eventRepository,
             UserRepository userRepository,
-            AuthService authService
+            AuthService authService,
+            TodoRepository todoRepository
     ) {
         this.eventRepository = eventRepository;
         this.userRepository = userRepository;
         this.authService = authService;
+        this.todoRepository = todoRepository;
     }
 
     private Optional<User> getAuthenticatedUser(String authHeader) {
@@ -130,6 +137,43 @@ public class EventController {
         ZoneId startZone = resolveZoneId(event.getStartTimezone(), baseZone);
         ZoneId endZone = resolveZoneId(event.getEndTimezone(), startZone);
 
+        if (Boolean.TRUE.equals(event.getIsTodo())) {
+            LocalDateTime dueLocal = event.getEndTime() != null ? event.getEndTime() : LocalDateTime.now(endZone);
+            LocalDateTime dueUtc = toUtc(dueLocal, endZone);
+            event.setUserId(user.getId());
+            event.setStartTime(null);
+            event.setEndTime(dueUtc);
+            event.setEventTimezone(endZone.getId());
+            event.setStartTimezone(endZone.getId());
+            event.setEndTimezone(endZone.getId());
+            event.setIsRepeating(false);
+            event.setRepeatType("None");
+            event.setEndOn(false);
+            event.setRepeatEndOn(null);
+            event.setSeriesId(null);
+            event.setIsTodo(true);
+
+            DailyEvent savedEvent = eventRepository.save(event);
+
+            TodoItem todo = new TodoItem();
+            todo.setUserId(user.getId());
+            todo.setTitle(savedEvent.getTitle());
+            todo.setDescription(savedEvent.getDescription() != null ? savedEvent.getDescription() : "");
+            todo.setCategory(savedEvent.getEventType() != null ? savedEvent.getEventType() : "Task");
+            todo.setPriority("MEDIUM");
+            todo.setIsFavorite(false);
+            todo.setIsComplete(savedEvent.getIsComplete());
+            todo.setDueTimeOn(!savedEvent.getIsAllDay());
+            todo.setDueDateTimeUtc(dueUtc);
+            todo.setLinkedEventId(savedEvent.getId());
+
+            TodoItem savedTodo = todoRepository.save(todo);
+            savedEvent.setLinkedTodoId(savedTodo.getId());
+            savedEvent = eventRepository.save(savedEvent);
+
+            return ResponseEntity.status(HttpStatus.CREATED).body(savedEvent);
+        }
+
         if (!Boolean.TRUE.equals(event.getIsRepeating()) || event.getRepeatType() == null || event.getRepeatType().equals("None")) {
             event.setUserId(user.getId());
             event.setEventTimezone(startZone.getId());
@@ -217,6 +261,51 @@ public class EventController {
         existing.setDescription(updatedEvent.getDescription());
         existing.setEventType(updatedEvent.getEventType());
         existing.setIsAllDay(Boolean.TRUE.equals(updatedEvent.getIsAllDay()));
+
+        if (Boolean.TRUE.equals(updatedEvent.getIsTodo())) {
+            LocalDateTime dueLocal = updatedEvent.getEndTime() != null ? updatedEvent.getEndTime() : LocalDateTime.now(endZone);
+            LocalDateTime dueUtc = toUtc(dueLocal, endZone);
+            existing.setStartTime(null);
+            existing.setEndTime(dueUtc);
+            existing.setEventTimezone(endZone.getId());
+            existing.setStartTimezone(endZone.getId());
+            existing.setEndTimezone(endZone.getId());
+            existing.setIsRepeating(false);
+            existing.setRepeatType("None");
+            existing.setEndOn(false);
+            existing.setRepeatEndOn(null);
+            existing.setSeriesId(null);
+            existing.setIsTodo(true);
+            existing.setIsComplete(updatedEvent.getIsComplete());
+
+            TodoItem linkedTodo = existing.getLinkedTodoId() != null
+                    ? todoRepository.findByIdAndUserId(existing.getLinkedTodoId(), user.getId()).orElse(new TodoItem())
+                    : todoRepository.findByLinkedEventIdAndUserId(existing.getId(), user.getId()).orElse(new TodoItem());
+            linkedTodo.setUserId(user.getId());
+            linkedTodo.setTitle(existing.getTitle());
+            linkedTodo.setDescription(existing.getDescription() != null ? existing.getDescription() : "");
+            linkedTodo.setCategory(existing.getEventType() != null ? existing.getEventType() : "Task");
+            linkedTodo.setIsComplete(existing.getIsComplete());
+            linkedTodo.setDueTimeOn(!existing.getIsAllDay());
+            linkedTodo.setDueDateTimeUtc(dueUtc);
+            linkedTodo.setLinkedEventId(existing.getId());
+
+            TodoItem savedTodo = todoRepository.save(linkedTodo);
+            existing.setLinkedTodoId(savedTodo.getId());
+            DailyEvent savedEvent = eventRepository.save(existing);
+            return ResponseEntity.ok(savedEvent);
+        }
+
+        if (existing.getIsTodo() || existing.getLinkedTodoId() != null) {
+            if (existing.getLinkedTodoId() != null) {
+                todoRepository.findByIdAndUserId(existing.getLinkedTodoId(), user.getId())
+                        .ifPresent(todoRepository::delete);
+            }
+            existing.setIsTodo(false);
+            existing.setLinkedTodoId(null);
+            existing.setIsComplete(false);
+        }
+
         existing.setEventTimezone(startZone.getId());
         existing.setStartTimezone(startZone.getId());
         existing.setEndTimezone(endZone.getId());
@@ -303,8 +392,14 @@ public class EventController {
         if (existingOpt.isEmpty() || !userOpt.get().getId().equals(existingOpt.get().getUserId())) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Event not found"));
         }
+        
+        DailyEvent toDelete = existingOpt.get();
+        if (toDelete.getLinkedTodoId() != null) {
+            todoRepository.findByIdAndUserId(toDelete.getLinkedTodoId(), userOpt.get().getId())
+                    .ifPresent(todoRepository::delete);
+        }
 
-        eventRepository.delete(existingOpt.get());
+        eventRepository.delete(toDelete);
         return ResponseEntity.noContent().build();
     }
 
