@@ -69,24 +69,94 @@ class _TodoListPageState extends State<TodoListPage> {
 
   Future<void> _toggleComplete(TodoItem todo) async {
     if (todo.id == null) return;
+    final bool nextComplete = !todo.isComplete;
+    final int idx = _todos.indexWhere((t) => t.id == todo.id);
+    if (idx != -1) {
+      setState(() {
+        _todos[idx] = TodoItem(
+          id: todo.id,
+          title: todo.title,
+          description: todo.description,
+          category: todo.category,
+          priority: todo.priority,
+          isFavorite: todo.isFavorite,
+          isComplete: nextComplete,
+          dueTimeOn: todo.dueTimeOn,
+          dueDate: todo.dueDate,
+          dueTime: todo.dueTime,
+          reminder: todo.reminder,
+          timezone: todo.timezone,
+          linkedEventId: todo.linkedEventId,
+        );
+      });
+    }
     try {
-      final response = await http.patch(
+      http.Response response = await http.put(
         Uri.parse('${widget.backendBaseUrl}/api/todos/${todo.id}/toggle'),
         headers: _headers(),
       );
+      if (response.statusCode != 200) {
+        final fallbackPayload = TodoItem(
+          id: todo.id,
+          title: todo.title,
+          description: todo.description,
+          category: todo.category,
+          priority: todo.priority,
+          isFavorite: todo.isFavorite,
+          isComplete: nextComplete,
+          dueTimeOn: todo.dueTimeOn,
+          dueDate: todo.dueDate,
+          dueTime: todo.dueTime,
+          reminder: todo.reminder,
+        ).toJson();
+        response = await http.put(
+          Uri.parse('${widget.backendBaseUrl}/api/todos/${todo.id}'),
+          headers: _headers(json: true),
+          body: jsonEncode(fallbackPayload),
+        );
+      }
       if (response.statusCode == 200) {
-        await _fetchTodos();
+        if(response.body.isNotEmpty && mounted){
+          final updatedTodo = TodoItem.fromJson(
+            jsonDecode(response.body) as Map<String, dynamic>,
+          );
+          final currentIdx = _todos.indexWhere((t) => t.id == todo.id);
+          if (currentIdx != -1) {
+            setState(() => _todos[currentIdx] = updatedTodo);
+          }
+        }
         await widget.onTodoChanged();
+      }else{
+        await _fetchTodos();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+              content: Text('Failed (${response.statusCode}): ${response.body}'),
+            ),
+          );
+        }
       }
     } catch (e) {
       debugPrint('Error toggling todo complete: $e');
+      await _fetchTodos();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+              content: Text('Network error updating task: $e'),
+          ),
+        );
+      }
     }
   }
 
   Future<void> _toggleFavorite(TodoItem todo) async {
     if (todo.id == null) return;
     try {
-      final response = await http.patch(
+      final response = await http.put(
         Uri.parse('${widget.backendBaseUrl}/api/todos/${todo.id}/favorite'),
         headers: _headers(),
       );
@@ -100,6 +170,24 @@ class _TodoListPageState extends State<TodoListPage> {
 
   Future<void> _deleteTodo(TodoItem todo) async {
     if (todo.id == null) return;
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete To-Do'),
+        content: Text('Are you sure you want to delete "${todo.title}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     try {
       final response = await http.delete(
         Uri.parse('${widget.backendBaseUrl}/api/todos/${todo.id}'),
@@ -493,7 +581,7 @@ class _TodoListPageState extends State<TodoListPage> {
                           final todo = visibleTodos[index];
                           final dueLabel = todo.dueTimeOn && todo.dueTime != null
                               ? 'Due: ${DateFormat('MMM d, yyyy').format(todo.dueDate)} ${todo.dueTime}'
-                              : 'Due: ${DateFormat('MMM d, yyyy').format(todo.dueDate)} (All-Day)';
+                              : 'Due: ${DateFormat('MMM d, yyyy').format(todo.dueDate)}';
 
                           return ListTile(
                             leading: Checkbox(

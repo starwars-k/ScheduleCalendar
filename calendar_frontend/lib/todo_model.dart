@@ -44,7 +44,7 @@ class TodoItem {
       category: json['category']?.toString() ?? 'Task',
       priority: json['priority']?.toString().toUpperCase() ?? 'MEDIUM',
       isFavorite: json['isFavorite'] == true,
-      isComplete: json['isComplete'] == true,
+      isComplete: (json['isComplete'] ?? json['complete']) == true,
       dueTimeOn: json['dueTimeOn'] == true,
       dueDate: DateTime(parsedDueDate.year, parsedDueDate.month, parsedDueDate.day),
       dueTime: json['dueTime']?.toString(),

@@ -5,15 +5,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
-import java.time.ZonedDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
+import java.time.*;
+import java.util.*;
 
 @RestController
 @RequestMapping("/api/events")
@@ -71,10 +64,11 @@ public class EventController {
     }
 
     // 1. イベント一覧取得（DBのUTC時刻をユーザーのタイムゾーンに変換して返却）
-    @GetMapping
-    @Transactional(readOnly = true)
+    @GetMapping({"", "/"})
+    @Transactional
     public ResponseEntity<?> getAllEvents(
-            @RequestHeader(value = "Authorization", required = false) String authHeader
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestParam(value = "targetYear", required = false) Integer targetYear
     ) {
         Optional<User> userOpt = getAuthenticatedUser(authHeader);
         if (userOpt.isEmpty()) {
@@ -83,6 +77,7 @@ public class EventController {
 
         Long userId = userOpt.get().getId();
         List<DailyEvent> events = eventRepository.findByUserId(userId);
+        ensureYearlyEventsUpTo(userId, events, targetYear);
         for (DailyEvent event : events) {
             String fallbackTz = event.getEventTimezone() != null ? event.getEventTimezone() : "UTC";
             if (event.getStartTimezone() == null || event.getStartTimezone().isBlank()) {
@@ -95,10 +90,78 @@ public class EventController {
         return ResponseEntity.ok(events);
     }
 
+    private void ensureYearlyEventsUpTo(Long userId, List<DailyEvent> events, Integer targetYear) {
+        Map<String, List<DailyEvent>> yearlySeriesMap = new HashMap<>();
+        for (DailyEvent event : events) {
+            if (event.getIsRepeating()
+                    && "Yearly".equals(event.getRepeatType())
+                    && event.getSeriesId() != null
+                    && !event.getSeriesId().isBlank()
+                    && event.getStartTime() != null
+                    && event.getEndTime() != null) {
+                yearlySeriesMap.computeIfAbsent(event.getSeriesId(), k -> new ArrayList<>()).add(event);
+            }
+        }
+
+        List<DailyEvent> newlyGenerated = new ArrayList<>();
+        for (Map.Entry<String, List<DailyEvent>> entry : yearlySeriesMap.entrySet()) {
+            DailyEvent latest = entry.getValue().stream()
+                    .max(Comparator.comparing(DailyEvent::getStartTime))
+                    .orElse(null);
+            if (latest == null) continue;
+
+            ZoneId baseZone = resolveZoneId(latest.getEventTimezone(), ZoneOffset.UTC);
+            ZoneId startZone = resolveZoneId(latest.getStartTimezone(), baseZone);
+            ZoneId endZone = resolveZoneId(latest.getEndTimezone(), startZone);
+
+            ZonedDateTime latestStart = ZonedDateTime.of(fromUtc(latest.getStartTime(), startZone), startZone);
+            ZonedDateTime latestEnd = ZonedDateTime.of(fromUtc(latest.getEndTime(), endZone), endZone);
+            ZonedDateTime repeatEndLimit = (latest.getEndOn() && latest.getRepeatEndOn() != null)
+                    ? ZonedDateTime.of(fromUtc(latest.getRepeatEndOn(), startZone), startZone)
+                    : null;
+
+            int requestedYear = (targetYear != null) ? targetYear : LocalDate.now(startZone).getYear();
+            int horizonYear = requestedYear + 9;
+            if (latestStart.getYear() >= horizonYear) continue;
+
+            int step = 1;
+            while (step <= 200) {
+                ZonedDateTime nextStart = latestStart.plusYears(step);
+                ZonedDateTime nextEnd = latestEnd.plusYears(step);
+                if (nextStart.getYear() > horizonYear) break;
+                if (repeatEndLimit != null && nextStart.isAfter(repeatEndLimit)) break;
+
+                DailyEvent occurrence = new DailyEvent(
+                        latest.getTitle(),
+                        latest.getDescription(),
+                        nextStart.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime(),
+                        nextEnd.withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime(),
+                        latest.getEventType(),
+                        latest.getIsAllDay(),
+                        true
+                );
+                occurrence.setUserId(userId);
+                occurrence.setEventTimezone(startZone.getId());
+                occurrence.setStartTimezone(startZone.getId());
+                occurrence.setEndTimezone(endZone.getId());
+                occurrence.setRepeatType("Yearly");
+                occurrence.setEndOn(latest.getEndOn());
+                occurrence.setRepeatEndOn(latest.getRepeatEndOn());
+                occurrence.setSeriesId(entry.getKey());
+                newlyGenerated.add(occurrence);
+                step++;
+            }
+        }
+
+        if (!newlyGenerated.isEmpty()) {
+            events.addAll(eventRepository.saveAll(newlyGenerated));
+        }
+    }
+
     private ZonedDateTime defaultRepeatLimit(ZonedDateTime baseStart, String repeatType) {
         if (repeatType == null) return baseStart.plusYears(1);
         return switch (repeatType) {
-            case "Yearly" -> baseStart.plusYears(10);
+            case "Yearly" -> baseStart.plusYears(9);
             case "Monthly" -> baseStart.plusYears(2);
             default -> baseStart.plusYears(1);
         };

@@ -37,7 +37,9 @@ class UserAppSettings {
           ? json['enableTodoList'] as bool
           : false,
       enablePayroll: false,
-      setupComplete: (json['setupComplete'] ?? json['setupComplete']) is bool
+      setupComplete: json['setupComplete'] is bool
+        ? json['setupComplete'] as bool
+        : false,
     );
   }
 
