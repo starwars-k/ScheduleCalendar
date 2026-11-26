@@ -1,8 +1,8 @@
-class DailyEvent{
+class DailyEvent {
   final int? id;
   final String title;
   final String description;
-  final DateTime startTime;
+  final DateTime? startTime;
   final DateTime endTime;
   final String eventType;
   final String timezone;
@@ -14,13 +14,16 @@ class DailyEvent{
   final bool? endOn;
   final DateTime? repeatEndOn;
   final String? seriesId;
-  
+  final bool isTodo;
+  final int? linkedTodoId;
+  final bool isComplete;
+
   DailyEvent({
-    this.id, 
-    required this.title, 
-    required this.description, 
-    required this.startTime, 
-    required this.endTime, 
+    this.id,
+    required this.title,
+    required this.description,
+    this.startTime,
+    required this.endTime,
     required this.eventType,
     this.timezone = 'UTC',
     this.startTimezone = 'UTC',
@@ -31,23 +34,27 @@ class DailyEvent{
     this.repeatEndOn,
     this.endOn,
     this.seriesId,
+    this.isTodo = false,
+    this.linkedTodoId,
+    this.isComplete = false,
   });
 
-  factory DailyEvent.fromJson(Map<String, dynamic> json){
+  factory DailyEvent.fromJson(Map<String, dynamic> json) {
     final fallbackTz = json['timezone']?.toString() ?? 'UTC';
     final startTz = json['startTimezone']?.toString() ?? fallbackTz;
     final endTz = json['endTimezone']?.toString() ?? startTz;
+    final bool isTodoFlag = json['isTodo'] == true;
 
     return DailyEvent(
       id: json['id'] is int ? json['id'] : (int.tryParse(json['id']?.toString() ?? '0') ?? 0),
       title: json['title'] ?? 'No Title',
       description: json['description']?.toString() ?? '',
-      startTime: json['startTime'] != null 
-        ? DateTime.parse(json['startTime'].toString()) 
-        : DateTime.now(),
-      endTime: json['endTime'] != null 
-        ? DateTime.parse(json['endTime'].toString()) 
-        : DateTime.now(),
+      startTime: json['startTime'] != null
+          ? DateTime.parse(json['startTime'].toString())
+          : (isTodoFlag ? null : DateTime.now()),
+      endTime: json['endTime'] != null
+          ? DateTime.parse(json['endTime'].toString())
+          : DateTime.now(),
       eventType: json['eventType']?.toString() ?? 'Unknown',
       timezone: fallbackTz,
       startTimezone: startTz,
@@ -56,10 +63,15 @@ class DailyEvent{
       isRepeating: json['isRepeating'] ?? false,
       repeatType: json['repeatType']?.toString(),
       repeatEndOn: json['repeatEndOn'] != null
-        ? DateTime.parse(json['repeatEndOn'].toString())
-        : null,
+          ? DateTime.parse(json['repeatEndOn'].toString())
+          : null,
       endOn: json['endOn'] ?? false,
-      seriesId: json['seriesId']?.toString(), 
+      seriesId: json['seriesId']?.toString(),
+      isTodo: isTodoFlag,
+      linkedTodoId: json['linkedTodoId'] is int
+          ? json['linkedTodoId']
+          : int.tryParse(json['linkedTodoId']?.toString() ?? ''),
+      isComplete: json['isComplete'] == true,
     );
   }
 
@@ -107,6 +119,8 @@ class DailyEvent{
     );
   }
 
-  DateTime get displayStartTime => convertUtcToTimezone(startTime, startTimezone);
+  DateTime? get displayStartTime =>
+      startTime != null ? convertUtcToTimezone(startTime!, startTimezone) : null;
   DateTime get displayEndTime => convertUtcToTimezone(endTime, endTimezone);
+  DateTime get displayEffectiveTime => isTodo ? displayEndTime : (displayStartTime ?? displayEndTime);
 }

@@ -5,10 +5,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
-import main.java.com.keito.calendar_backend.AuthService;
-import main.java.com.keito.calendar_backend.TodoItem;
-import main.java.com.keito.calendar_backend.TodoRepository;
-
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
