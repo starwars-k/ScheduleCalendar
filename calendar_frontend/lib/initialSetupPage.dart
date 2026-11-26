@@ -19,14 +19,14 @@ class UserAppSettings {
   final String language; // 'en' or 'ja'
   final bool enableTodoList;
   final bool enablePayroll;
-  final bool setupCompleted;
+  final bool setupComplete;
 
   const UserAppSettings({
     this.timezone = 'America/Chicago',
     this.language = 'en',
     this.enableTodoList = false,
     this.enablePayroll = false,
-    this.setupCompleted = false,
+    this.setupComplete = false,
   });
 
   factory UserAppSettings.fromJson(Map<String, dynamic> json) {
@@ -39,19 +39,35 @@ class UserAppSettings {
       enablePayroll: json['enablePayroll'] is bool
           ? json['enablePayroll'] as bool
           : false,
-      setupCompleted: json['setupCompleted'] is bool
-          ? json['setupCompleted'] as bool
+      setupComplete: json['setupComplete'] is bool
+          ? json['setupComplete'] as bool
           : false,
     );
   }
 
   Map<String, dynamic> toJson() => {
-        'timezone': timezone,
-        'language': language,
-        'enableTodoList': enableTodoList,
-        'enablePayroll': enablePayroll,
-        'setupCompleted': setupCompleted,
-      };
+    'timezone': timezone,
+    'language': language,
+    'enableTodoList': enableTodoList,
+    'enablePayroll': enablePayroll,
+    'setupComplete': setupComplete,
+  };
+  
+  UserAppSettings copyWith({
+    String? timezone,
+    String? language,
+    bool? enableTodoList,
+    bool? enablePayroll,
+    bool? setupComplete,
+  }) {
+    return UserAppSettings(
+      timezone: timezone ?? this.timezone,
+      language: language ?? this.language,
+      enableTodoList: enableTodoList ?? this.enableTodoList,
+      enablePayroll: enablePayroll ?? this.enablePayroll,
+      setupComplete: setupComplete ?? this.setupComplete,
+    );
+  }
 
   Future<void> saveToCache() async {
     final prefs = await SharedPreferences.getInstance();
@@ -303,14 +319,7 @@ class _InitialSetupPageState extends State<InitialSetupPage> {
                       children: [
                         SwitchListTile(
                           secondary: const Icon(Icons.check_box_outlined),
-                          title: Wrap(
-                            spacing: 8,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              Text(_isJapanese ? 'To-Do リスト' : 'To-Do List'),
-                              _buildComingSoonBadge(),
-                            ],
-                          ),
+                          title: Text(_isJapanese ? 'To-Do リスト' : 'To-Do List'),
                           subtitle: Text(
                             _isJapanese
                                 ? 'タスクやチェックリストの管理機能'
