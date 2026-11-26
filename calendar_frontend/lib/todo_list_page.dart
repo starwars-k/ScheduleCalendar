@@ -486,6 +486,7 @@ class _TodoListPageState extends State<TodoListPage> {
                 : visibleTodos.isEmpty
                     ? const Center(child: Text('No to-do items yet. Tap + to add one!'))
                     : ListView.separated(
+                        padding: const EdgeInsets.only(bottom: 160),
                         itemCount: visibleTodos.length,
                         separatorBuilder: (_, __) => const Divider(height: 1),
                         itemBuilder: (context, index) {
@@ -584,9 +585,12 @@ class _TodoListPageState extends State<TodoListPage> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showTodoEditor(),
-        child: const Icon(Icons.add, color: Colors.black),
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(bottom: 82),
+        child: FloatingActionButton(
+          onPressed: () => _showTodoEditor(),
+          child: const Icon(Icons.add, color: Colors.black),
+        ),
       ),
     );
   }

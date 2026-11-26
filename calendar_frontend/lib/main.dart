@@ -14,6 +14,7 @@ import 'package:flutter/cupertino.dart';
 
 import 'dart:convert';
 import 'dart:async';
+import 'dart:ui';
 
 //const String kBackendBaseUrl = 'https://calendar-backend-qhny.onrender.com';
 const String kBackendBaseUrl = 'http://localhost:8080';
@@ -58,6 +59,7 @@ class _AuthGatePageState extends State<AuthGatePage> {
   String? _username;
   UserAppSettings _appSettings = const UserAppSettings();
   bool _checkingAuth = true;
+  bool _isNewRegistration = false;
 
   @override
   void initState() {
@@ -93,6 +95,8 @@ class _AuthGatePageState extends State<AuthGatePage> {
           setState(() {
             _appSettings = freshSettings;
           });
+        }else if (response.statusCode == 401 && mounted){
+          await _logout();
         }
       } catch (_) {}
     }
@@ -109,6 +113,7 @@ class _AuthGatePageState extends State<AuthGatePage> {
       _token = null;
       _username = null;
       _appSettings = const UserAppSettings();
+      _isNewRegistration = false;
     });
   }
 
@@ -122,16 +127,17 @@ class _AuthGatePageState extends State<AuthGatePage> {
     if (_token == null) {
       return LoginPage(
         backendBaseUrl: kBackendBaseUrl,
-        onLoginSuccess: (token, username, settings) {
+        onLoginSuccess: (token, username, settings, isRegisterMode) {
           setState(() {
             _token = token;
             _username = username;
             _appSettings = settings;
+            _isNewRegistration = isRegisterMode;
           });
         },
       );
     }
-    if (!_appSettings.setupCompleted) {
+    if (_isNewRegistration && !_appSettings.setupComplete) {
       return InitialSetupPage(
         backendBaseUrl: kBackendBaseUrl,
         authToken: _token!,
@@ -140,6 +146,7 @@ class _AuthGatePageState extends State<AuthGatePage> {
         onSetupComplete: (updatedSettings) {
           setState(() {
             _appSettings = updatedSettings;
+            _isNewRegistration = false;
           });
         },
       );
@@ -999,67 +1006,124 @@ class _CalendarPageState extends State<CalendarPage> {
       _currentTabIndex = 0;
     }
     final String activeTab = tabKeys[_currentTabIndex];
-    Widget buildBelowCalendarBar() {
-      return Material(
-        color: Colors.grey.shade100,
-        child: Row(
-          children: List.generate(tabKeys.length, (index) {
-            final key = tabKeys[index];
-            final bool selected = index == _currentTabIndex;
-            late IconData icon;
-            late String label;
-            switch (key) {
-              case 'todo':
-                icon = Icons.check_circle_outline;
-                label = 'To-Do';
-                break;
-              case 'payroll':
-                icon = Icons.payments_outlined;
-                label = 'Payroll';
-                break;
-              case 'settings':
-                icon = Icons.settings;
-                label = 'Settings';
-                break;
-              case 'calendar':
-              default:
-                icon = Icons.calendar_month;
-                label = 'Calendar';
-                break;
-            }
-            return Expanded(
-              child: InkWell(
-                onTap: () async {
-                  setState(() => _currentTabIndex = index);
-                  if (key == 'calendar') {
-                    await fetchEventsFromJava();
-                  }
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        icon,
-                        size: 20,
-                        color: selected ? Colors.blue : Colors.grey.shade700,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        label,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                          color: selected ? Colors.blue : Colors.grey.shade700,
+    Widget buildAppleDockBar() {
+      return SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 14, left: 16, right: 16),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(28),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.82),
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.95),
+                    width: 1.2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.14),
+                      blurRadius: 24,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: List.generate(tabKeys.length, (index) {
+                    final key = tabKeys[index];
+                    final bool selected = index == _currentTabIndex;
+                    late IconData icon;
+                    late String label;
+                    late Color accentColor;
+                    switch (key) {
+                      case 'todo':
+                        icon = Icons.check_circle_rounded;
+                        label = 'To-Do';
+                        accentColor = Colors.green;
+                        break;
+                      case 'payroll':
+                        icon = Icons.payments_rounded;
+                        label = 'Payroll';
+                        accentColor = Colors.orange;
+                        break;
+                      case 'settings':
+                        icon = Icons.settings_rounded;
+                        label = 'Settings';
+                        accentColor = Colors.blueGrey;
+                        break;
+                      case 'calendar':
+                      default:
+                        icon = Icons.calendar_month_rounded;
+                        label = 'Calendar';
+                        accentColor = Colors.blue;
+                        break;
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () async {
+                          setState(() => _currentTabIndex = index);
+                          if (key == 'calendar') {
+                            await fetchEventsFromJava();
+                          }
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          curve: Curves.easeOutCubic,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? accentColor.withOpacity(0.14)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              AnimatedScale(
+                                scale: selected ? 1.12 : 1.0,
+                                duration: const Duration(milliseconds: 180),
+                                child: Icon(
+                                  icon,
+                                  size: 24,
+                                  color: selected ? accentColor : Colors.grey.shade700,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                label,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                                  color: selected ? accentColor : Colors.grey.shade700,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 180),
+                                width: selected ? 5 : 0,
+                                height: 5,
+                                decoration: BoxDecoration(
+                                  color: selected ? accentColor : Colors.transparent,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ],
-                  ),
+                    );
+                  }),
                 ),
               ),
-            );
-          }),
+            ),
+          ),
         ),
       );
     }
@@ -1068,16 +1132,14 @@ class _CalendarPageState extends State<CalendarPage> {
     if (activeTab == 'todo') appBarTitleBase = 'To-Do List';
     if (activeTab == 'payroll') appBarTitleBase = 'Payroll';
     if (activeTab == 'settings') appBarTitleBase = 'Settings';
-    
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          _currentTabIndex == 1
-              ? (widget.username.isNotEmpty ? 'To-Do List (${widget.username})' : 'To-Do List')
-              : (widget.username.isNotEmpty ? 'Schedule Calendar (${widget.username})' : 'Schedule Calendar'),
+          widget.username.isNotEmpty ? '$appBarTitleBase (${widget.username})' : appBarTitleBase,
         ),
         actions: [
-          if (_currentTabIndex == 0)
+          if (activeTab == 'calendar')
             IconButton(
               icon: Icon(_isSearching ? Icons.close : Icons.search),
               onPressed: () async {
@@ -1292,14 +1354,29 @@ class _CalendarPageState extends State<CalendarPage> {
           ),
         ],
       ),
-      body: _currentTabIndex == 1
-          ? TodoListPage(
+      body: Stack(
+        children: [
+          if (activeTab == 'settings')
+            SettingsPage(
+              backendBaseUrl: kBackendBaseUrl,
+              authToken: widget.authToken,
+              currentSettings: _activeSettings,
+              onSettingsChanged: (updated) async {
+                setState(() => _activeSettings = updated);
+              },
+              onLogout: widget.onLogout,
+            )
+          else if (activeTab == 'todo')
+            TodoListPage(
               backendBaseUrl: kBackendBaseUrl,
               authToken: widget.authToken,
               defaultTimezone: _defaultUserTimezone(),
               onTodoChanged: () => fetchEventsFromJava(),
             )
-          : Stack(
+          else if (activeTab == 'payroll')
+            const Center(child: Text('Payroll Page'))
+          else
+            Stack(
               children: [
                 Column(
                   children: [
@@ -1315,7 +1392,7 @@ class _CalendarPageState extends State<CalendarPage> {
                         return _events.where((event) {
                           if (event.isTodo) return isSameDay(event.displayEndTime, day);
                           return event.displayEffectiveTime.isBefore(dayEnd) &&
-                              event.displayEndTime.isAfter(dayStart);
+                          event.displayEndTime.isAfter(dayStart);
                         }).toList();
                       },
                       onDaySelected: (selectedDay, focusedDay) {
@@ -1368,36 +1445,36 @@ class _CalendarPageState extends State<CalendarPage> {
                         }
                       },
                     ),
-                    const SizedBox(height: 8.0),
-                    const Divider(),
+
                     Expanded(
                       child: ListView.builder(
+                        padding: const EdgeInsets.only(bottom: 160),
                         itemCount: _selectedEvents.length,
                         itemBuilder: (context, index) {
                           final event = _selectedEvents[index];
                           return ListTile(
                             leading: Icon(
                               event.isTodo
-                                  ? (event.isComplete ? Icons.check_circle : Icons.radio_button_unchecked)
-                                  : Icons.event,
+                                ? (event.isComplete ? Icons.check_circle : Icons.radio_button_unchecked)
+                                : Icons.event,
                               color: _getEventColor(event.eventType),
                             ),
                             title: Text(
                               event.title,
                               style: TextStyle(
                                 decoration: (event.isTodo && event.isComplete)
-                                    ? TextDecoration.lineThrough
-                                    : TextDecoration.none,
+                                  ? TextDecoration.lineThrough
+                                  : TextDecoration.none,
                               ),
                             ),
                             subtitle: Text(
-                              event.isTodo
-                                  ? (event.isAllDay
-                                      ? "Due: All-Day"
-                                      : "Due: ${DateFormat('MMM d, HH:mm').format(event.displayEndTime)} (${event.timezone.split('/').last})")
-                                  : (event.isAllDay
-                                      ? "All-Day"
-                                      : "${DateFormat('MMM d, HH:mm').format(event.displayEffectiveTime)}(${event.startTimezone.split('/').last}) - ${DateFormat('MMM d, HH:mm').format(event.displayEndTime)}(${event.endTimezone.split('/').last})"),
+                              event.isTodo 
+                                ? (event.isAllDay
+                                ? "Due: All-Day"
+                                : "Due: ${DateFormat('MMM d, HH:mm').format(event.displayEndTime)} (${event.timezone.split('/').last})")
+                                : (event.isAllDay
+                                ? "All-Day"
+                                : "${DateFormat('MMM d, HH:mm').format(event.displayEffectiveTime)}(${event.startTimezone.split('/').last}) - ${DateFormat('MMM d, HH:mm').format(event.displayEndTime)}(${event.endTimezone.split('/').last})"),
                             ),
                             onTap: () {
                               Navigator.push(
@@ -1438,7 +1515,7 @@ class _CalendarPageState extends State<CalendarPage> {
                 Positioned(
                   left: 16,
                   right: 16,
-                  bottom: 30,
+                  bottom: 96,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -1460,26 +1537,14 @@ class _CalendarPageState extends State<CalendarPage> {
                       ),
                     ],
                   ),
+                  
                 ),
               ],
             ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentTabIndex,
-        onTap: (index) {
-          setState(() => _currentTabIndex = index);
-          if (index == 0) {
-            fetchEventsFromJava();
-          }
-        },
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_month),
-            label: 'Calendar',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.check_circle_outline),
-            label: 'To-Do List',
-          ),
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: buildAppleDockBar(),
+            ),
         ],
       ),
     );

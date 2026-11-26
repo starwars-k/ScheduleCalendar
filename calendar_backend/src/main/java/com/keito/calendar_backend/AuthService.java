@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.keito.calendar_backend.DailyEvent;
+import com.keito.calendar_backend.User;
 
 import javax.crypto.Mac;
 import javax.crypto.SecretKeyFactory;
@@ -72,7 +73,9 @@ public class AuthService {
             throw new IllegalArgumentException("Username is already taken");
         }
         User user = new User(normalizedUsername, hashPassword(rawPassword));
-        return userRepository.save(user);
+        User savedUser = userRepository.save(user);
+        seedDefaultEventsForUser(savedUser.getId());
+        return savedUser;
     }
 
     public void seedDefaultEventsForUser(Long userId) {
