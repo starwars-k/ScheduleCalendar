@@ -21,13 +21,17 @@ public class User {
 
     private String language = "en";
 
+    @Column(nullable = false, columnDefinition = "boolean default false")
     private Boolean enableTodoList = false;
 
+    @Column(nullable = false, columnDefinition = "boolean default false")
     private Boolean enableNotification = false;
 
+    @Column(nullable = false, columnDefinition = "boolean default false")
     private Boolean enablePayroll = false;
 
-    private Boolean setupCompleted = false;
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private Boolean setupComplete = false;
 
     public User() {}
 
@@ -62,7 +66,7 @@ public class User {
     public Boolean getEnablePayroll() {return enablePayroll;}
     public void setEnablePayroll(Boolean enablePayroll) {this.enablePayroll = enablePayroll;}
 
-    public boolean isSetupCompleted() {return Boolean.TRUE.equals(setupCompleted);}
-    public Boolean getSetupCompleted() {return setupCompleted;}
-    public void setSetupCompleted(Boolean setupCompleted) {this.setupCompleted = setupCompleted;}
+    public boolean isSetupComplete() {return Boolean.TRUE.equals(setupComplete);}
+    public Boolean getSetupComplete() {return setupComplete;}
+    public void setSetupComplete(Boolean setupComplete) {this.setupComplete = setupComplete;}
 }

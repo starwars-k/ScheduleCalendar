@@ -48,7 +48,7 @@ public class UserController {
                 "language", user.getLanguage(),
                 "enableTodoList", user.isEnableTodoList(),
                 "enablePayroll", user.isEnablePayroll(),
-                "setupCompleted", user.isSetupCompleted()
+                "setupComplete", user.isSetupComplete()
         );
     }
 
@@ -104,7 +104,7 @@ public class UserController {
             user.setEnablePayroll(payrollFlag);
         }
 
-        user.setSetupCompleted(true);
+        user.setSetupComplete(true);
         userRepository.save(user);
 
         return ResponseEntity.ok(buildSettingsResponse(user));

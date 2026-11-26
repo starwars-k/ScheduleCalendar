@@ -36,12 +36,8 @@ class UserAppSettings {
       enableTodoList: json['enableTodoList'] is bool
           ? json['enableTodoList'] as bool
           : false,
-      enablePayroll: json['enablePayroll'] is bool
-          ? json['enablePayroll'] as bool
-          : false,
-      setupComplete: json['setupComplete'] is bool
-          ? json['setupComplete'] as bool
-          : false,
+      enablePayroll: false,
+      setupComplete: (json['setupComplete'] ?? json['setupComplete']) is bool
     );
   }
 
@@ -156,7 +152,7 @@ class _InitialSetupPageState extends State<InitialSetupPage> {
           'timezone': _selectedTimezone,
           'language': _selectedLanguage,
           'enableTodoList': _enableTodoList,
-          'enablePayroll': _enablePayroll,
+          'enablePayroll': false,
           'convertExistingEvents': true,
         }),
       );
@@ -345,7 +341,7 @@ class _InitialSetupPageState extends State<InitialSetupPage> {
                                 : 'Calculate earnings from work shifts and hours',
                           ),
                           value: _enablePayroll,
-                          onChanged: (val) => setState(() => _enablePayroll = val),
+                          onChanged: null,
                         ),
                       ],
                     ),
