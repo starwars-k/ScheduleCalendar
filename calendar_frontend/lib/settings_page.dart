@@ -87,6 +87,24 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Widget _buildComingSoonBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.amber.shade100,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        'Coming Soon',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: Colors.amber.shade900,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListView(
@@ -115,15 +133,17 @@ class _SettingsPageState extends State<SettingsPage> {
               const Divider(height: 1),
               SwitchListTile(
                 secondary: const Icon(Icons.payments_outlined),
-                title: const Text('Payroll'),
+                title: Wrap(
+                  spacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const Text('Payroll'),
+                    _buildComingSoonBadge(),
+                  ],
+                ),
                 subtitle: const Text('Show Payroll tab for shift & income tracking'),
-                value: _payrollEnabled,
-                onChanged: _isSaving
-                    ? null
-                    : (val) => _updateModuleToggle(
-                          nextTodo: _todoEnabled,
-                          nextPayroll: val,
-                        ),
+                value: false,
+                onChanged: null,
               ),
             ],
           ),

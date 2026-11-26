@@ -252,7 +252,7 @@ public class TodoController {
     }
 
     // 4. Quick toggle completion status + sync linked DailyEvent
-    @PatchMapping("/{id}/toggle")
+    @RequestMapping(value = "/{id}/toggle", method = {RequestMethod.PATCH, RequestMethod.PUT, RequestMethod.POST})
     @Transactional
     public ResponseEntity<?> toggleComplete(
             @RequestHeader(value = "Authorization", required = false) String authHeader,
@@ -280,7 +280,7 @@ public class TodoController {
     }
 
     // 5. Quick toggle favorite status
-    @PatchMapping("/{id}/favorite")
+    @RequestMapping(value = "/{id}/favorite", method = {RequestMethod.PATCH, RequestMethod.PUT, RequestMethod.POST})
     @Transactional
     public ResponseEntity<?> toggleFavorite(
             @RequestHeader(value = "Authorization", required = false) String authHeader,

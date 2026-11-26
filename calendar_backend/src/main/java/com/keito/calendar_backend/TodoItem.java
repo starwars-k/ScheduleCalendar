@@ -89,7 +89,7 @@ public class TodoItem {
     public void setIsFavorite(boolean isFavorite) { this.isFavorite = isFavorite; }
 
     public boolean getIsComplete() { return isComplete; }
-    public void setIsComplete(boolean isCompleted) { this.isComplete = isComplete; }
+    public void setIsComplete(boolean isComplete) { this.isComplete = isComplete; }
 
     public boolean getDueTimeOn() { return dueTimeOn; }
     public void setDueTimeOn(boolean dueTimeOn) { this.dueTimeOn = dueTimeOn; }

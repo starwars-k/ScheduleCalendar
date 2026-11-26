@@ -37,7 +37,7 @@ public class AuthController {
         String password = request.get("password") != null ? request.get("password").toString() : "";
 
         if (username.trim().length() < 3) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Username must be at least 5 characters"));
+            return ResponseEntity.badRequest().body(Map.of("error", "Username must be at least 3 characters"));
         }
         if (password.length() < 6) {
             return ResponseEntity.badRequest().body(Map.of("error", "Password must be at least 6 characters"));
@@ -51,7 +51,7 @@ public class AuthController {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         } catch (Exception e) {
             e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("Error", "Registrationfailed: " + e.getMessage()));
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", "Registration failed: " + e.getMessage()));
         }
     }
 

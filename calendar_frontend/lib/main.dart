@@ -193,6 +193,7 @@ class _CalendarPageState extends State<CalendarPage> {
   bool _isRepeating = false;
   bool _endOn = false;
   bool _isTodo = false;
+  bool _setDueTime = false;
   bool _isComplete = false;
   int _currentTabIndex = 0;
   late UserAppSettings _activeSettings;
@@ -202,6 +203,7 @@ class _CalendarPageState extends State<CalendarPage> {
   DateTime _repeatEndDate = DateTime.now().add(const Duration(days: 1));
   CalendarFormat _calendarFormat = CalendarFormat.month;
   List<DailyEvent> _events = [];
+  Set<int> _highPriorityTodoEventIds = {};
 
   Map<String, String> _authHeaders({bool json = false}) {
     final headers = <String, String>{
@@ -270,7 +272,10 @@ class _CalendarPageState extends State<CalendarPage> {
     final bool isEditing = eventToEdit != null;
     _titleController.text = isEditing ? eventToEdit.title : '';
     _memoController.text = isEditing ? eventToEdit.description : '';
-    _isTodo = isEditing ? eventToEdit.isTodo : false;
+    _isTodo = _activeSettings.enableTodoList
+      ?(isEditing ? eventToEdit.isTodo : false)
+      :false;
+    _setDueTime = (_isTodo && isEditing) ? !eventToEdit.isAllDay : false;
     _isComplete = isEditing ? eventToEdit.isComplete : false;
     _startTime = isEditing
         ? (eventToEdit.displayStartTime ?? eventToEdit.displayEndTime.subtract(const Duration(hours: 1)))
@@ -346,58 +351,98 @@ class _CalendarPageState extends State<CalendarPage> {
                         decoration: const InputDecoration(hintText: "Event Title"),
                       ),
                       const SizedBox(height: 10),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text("Add to To-Do List"),
-                        subtitle: Text(
-                          _isTodo
-                              ? "Uses Due Time only and syncs with To-Do List"
-                              : "Standard calendar event",
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        value: _isTodo,
-                        onChanged: (bool value) {
-                          setDialogState(() {
-                            _isTodo = value;
-                            if (_isTodo) {
-                              _isRepeating = false;
-                              _repeatType = 'None';
-                              _showStartTimezonePicker = false;
-                            }
-                          });
-                        },
-                      ),
-                      Row(
-                        children: [
-                          Checkbox(
-                            value: _isAllDay,
-                            onChanged: (bool? value) {
-                              setDialogState(() {
-                                _isAllDay = value ?? false;
-                                if (_isAllDay) {
-                                  _startTime = DateTime(
-                                    _startTime.year,
-                                    _startTime.month,
-                                    _startTime.day,
-                                    0,
-                                    0,
-                                    0,
-                                  );
-                                  _endTime = DateTime(
-                                    _endTime.year,
-                                    _endTime.month,
-                                    _endTime.day,
-                                    23,
-                                    59,
-                                    59,
-                                  );
-                                }
-                              });
-                            },
+                      if (_activeSettings.enableTodoList)
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text("Add to To-Do List"),
+                          subtitle: Text(
+                            _isTodo
+                                ? "Uses Due Date / Due Time and syncs with To-Do List"
+                                : "Standard calendar event",
+                            style: const TextStyle(fontSize: 12),
                           ),
-                          const Text("All-Day Event"),
-                        ],
-                      ),
+                          value: _isTodo,
+                          onChanged: (bool value) {
+                            setDialogState(() {
+                              _isTodo = value;
+                              if (_isTodo) {
+                                _isRepeating = false;
+                                _repeatType = 'None';
+                                _showStartTimezonePicker = false;
+                                _setDueTime = false;
+                                _isAllDay = true;
+                                _endTime = DateTime(
+                                  _endTime.year,
+                                  _endTime.month,
+                                  _endTime.day,
+                                  23,
+                                  59,
+                                  59,
+                                );
+                              } else {
+                                _setDueTime = false;
+                                _isAllDay = false;
+                              }
+                            });
+                          },
+                        ),
+                      if (!_isTodo)
+                        Row(
+                          children: [
+                            Checkbox(
+                              value: _isAllDay,
+                              onChanged: (bool? value) {
+                                setDialogState(() {
+                                  _isAllDay = value ?? false;
+                                  if (_isAllDay) {
+                                    _startTime = DateTime(
+                                      _startTime.year,
+                                      _startTime.month,
+                                      _startTime.day,
+                                      0,
+                                      0,
+                                      0,
+                                    );
+                                    _endTime = DateTime(
+                                      _endTime.year,
+                                      _endTime.month,
+                                      _endTime.day,
+                                      23,
+                                      59,
+                                      59,
+                                    );
+                                  }
+                                });
+                              },
+                            ),
+                            const Text("All-Day Event"),
+                          ],
+                        ),
+                      if (_isTodo)
+                        Row(
+                          children: [
+                            Checkbox(
+                              value: _setDueTime,
+                              onChanged: (bool? value) {
+                                setDialogState(() {
+                                  _setDueTime = value ?? false;
+                                  _isAllDay = !_setDueTime;
+                                  if (!_setDueTime) {
+                                    _endTime = DateTime(
+                                      _endTime.year,
+                                      _endTime.month,
+                                      _endTime.day,
+                                      23,
+                                      59,
+                                      59,
+                                    );
+                                  }
+                                });
+                              },
+                            ),
+                            const Text("Set Due Time"),
+                          ],
+                        ),
                       if (!_isTodo)
                         ListTile(
                           title: Text(_isAllDay ? "Start Date" : "Start Time"),
@@ -527,9 +572,7 @@ class _CalendarPageState extends State<CalendarPage> {
                       const Divider(height: 1),
                       ListTile(
                         title: Text(
-                          _isTodo
-                              ? (_isAllDay ? "Due Date" : "Due Time")
-                              : (_isAllDay ? "End Date" : "End Time"),
+                          _isTodo ? "Due Date" : (_isAllDay ? "End Date" : "End Time"),
                         ),
                         trailing: Wrap(
                           spacing: 8,
@@ -555,16 +598,17 @@ class _CalendarPageState extends State<CalendarPage> {
                                 );
                                 if (pickedDate != null) {
                                   setDialogState(() {
+                                    final bool keepAllDay = _isTodo ? !_setDueTime : _isAllDay;
                                     _endTime = DateTime(
                                       pickedDate.year,
                                       pickedDate.month,
                                       pickedDate.day,
-                                      _isAllDay ? 23 : _endTime.hour,
-                                      _isAllDay ? 59 : _endTime.minute,
-                                      _isAllDay ? 59 : 0,
+                                      keepAllDay ? 23 : _endTime.hour,
+                                      keepAllDay ? 59 : _endTime.minute,
+                                      keepAllDay ? 59 : 0,
                                     );
                                     if (!_isTodo && _startTime.isAfter(_endTime)) {
-                                      _startTime = _isAllDay
+                                      _startTime = keepAllDay
                                           ? DateTime(pickedDate.year, pickedDate.month, pickedDate.day, 0, 0, 0)
                                           : _endTime.subtract(const Duration(hours: 1));
                                     }
@@ -572,7 +616,7 @@ class _CalendarPageState extends State<CalendarPage> {
                                 }
                               },
                             ),
-                            if (!_isAllDay)
+                            if (!_isTodo && !_isAllDay)
                               TextButton(
                                 style: TextButton.styleFrom(
                                   backgroundColor: CupertinoColors.extraLightBackgroundGray,
@@ -604,31 +648,63 @@ class _CalendarPageState extends State<CalendarPage> {
                                   style: const TextStyle(color: Colors.black),
                                 ),
                               ),
-                            TextButton.icon(
-                              icon: const Icon(Icons.public, size: 16, color: Colors.black),
-                              label: Text(
-                                _endTimezone.split('/').last,
-                                style: const TextStyle(color: Colors.black, fontSize: 12),
+                              TextButton.icon(
+                                icon: const Icon(Icons.public, size: 16, color: Colors.black),
+                                label: Text(
+                                  _endTimezone.split('/').last,
+                                  style: const TextStyle(color: Colors.black, fontSize: 12),
+                                ),
+                                style: TextButton.styleFrom(
+                                  backgroundColor: _showEndTimezonePicker
+                                      ? Colors.blue.shade100
+                                      : CupertinoColors.extraLightBackgroundGray,
+                                  shape: const StadiumBorder(),
+                                  padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
+                                ),
+                                onPressed: () {
+                                  setDialogState(() {
+                                    _showEndTimezonePicker = !_showEndTimezonePicker;
+                                    if (_showEndTimezonePicker) {
+                                      _showStartTimezonePicker = false;
+                                    }
+                                  });
+                                },
                               ),
-                              style: TextButton.styleFrom(
-                                backgroundColor: _showEndTimezonePicker
-                                    ? Colors.blue.shade100
-                                    : CupertinoColors.extraLightBackgroundGray,
-                                shape: const StadiumBorder(),
-                                padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
-                              ),
-                              onPressed: () {
-                                setDialogState(() {
-                                  _showEndTimezonePicker = !_showEndTimezonePicker;
-                                  if (_showEndTimezonePicker) {
-                                    _showStartTimezonePicker = false;
-                                  }
-                                });
-                              },
-                            ),
                           ],
                         ),
                       ),
+                      if (_isTodo && _setDueTime)
+                        ListTile(
+                          title: const Text("Due Time"),
+                          trailing: TextButton(
+                            style: TextButton.styleFrom(
+                              backgroundColor: CupertinoColors.extraLightBackgroundGray,
+                              shape: const StadiumBorder(),
+                              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                            ),
+                            onPressed: () async {
+                              final TimeOfDay? pickedTime = await _showAppleStyleTimePicker(
+                                context: context,
+                                initialTime: _endTime,
+                              );
+                              if (pickedTime != null) {
+                                setDialogState(() {
+                                  _endTime = DateTime(
+                                    _endTime.year,
+                                    _endTime.month,
+                                    _endTime.day,
+                                    pickedTime.hour,
+                                    pickedTime.minute,
+                                  );
+                                });
+                              }
+                            },
+                            child: Text(
+                              DateFormat('HH:mm').format(_endTime),
+                              style: const TextStyle(color: Colors.black),
+                            ),
+                          ),
+                        ),
                       if (_showEndTimezonePicker)
                         Padding(
                           padding: const EdgeInsets.only(top: 6, bottom: 10),
@@ -805,28 +881,60 @@ class _CalendarPageState extends State<CalendarPage> {
     );
   }
 
-  Future<void> fetchEventsFromJava() async {
-    await showLoadingIfNeeded(() async {
+  Future<void> fetchEventsFromJava({int? targetYear, bool silent = false}) async {
+    Future<void> loadTask() async{
       try {
+        final int yearToLoad = targetYear ?? _focusedDay.year;
+        final String baseUrl = kBackendBaseUrl.endsWith('/')
+            ? kBackendBaseUrl.substring(0, kBackendBaseUrl.length - 1)
+            : kBackendBaseUrl;
+        final Uri requestUri = Uri.parse('$baseUrl/api/events?targetYear=$yearToLoad');
         final response = await http.get(
-          Uri.parse('$kBackendBaseUrl/api/events'),
+          requestUri,
           headers: _authHeaders(),
         );
         if (response.statusCode == 200) {
           List<dynamic> body = jsonDecode(response.body);
+          Set<int> highPriorityIds = {};
+          if (_activeSettings.enableTodoList) {
+            try {
+              final todoRes = await http.get(
+                Uri.parse('$kBackendBaseUrl/api/todos'),
+                headers: _authHeaders(),
+              );
+              if (todoRes.statusCode == 200) {
+                final List<dynamic> todoList = jsonDecode(todoRes.body);
+                for (final item in todoList) {
+                  if (item is Map<String, dynamic> &&
+                      item['priority']?.toString().toUpperCase() == 'HIGH') {
+                    final linkedId = item['linkedEventId'] is int
+                        ? item['linkedEventId'] as int
+                        : int.tryParse(item['linkedEventId']?.toString() ?? '');
+                    if (linkedId != null) highPriorityIds.add(linkedId);
+                  }
+                }
+              }
+            } catch (_) {}
+          }
           if (!mounted) return;
           setState(() {
             _events = body.map((dynamic item) => DailyEvent.fromJson(item)).cast<DailyEvent>().toList();
+            _highPriorityTodoEventIds = highPriorityIds;
           });
         } else if (response.statusCode == 401) {
           await widget.onLogout();
         } else {
-          debugPrint("Failed to load events: ${response.statusCode}");
+          debugPrint("Failed to load events: ${response.statusCode} -> $requestUri");
         }
       } catch (e) {
         debugPrint("FLUTTER ERROR: $e");
       }
-    });
+    }
+    if (silent) {
+      await loadTask();
+    } else {
+      await showLoadingIfNeeded(loadTask);
+    }
   }
 
   Future<void> _deleteEvent(int id) async {
@@ -863,7 +971,7 @@ class _CalendarPageState extends State<CalendarPage> {
       'timezone': _isTodo ? _endTimezone : _startTimezone,
       'startTimezone': _startTimezone,
       'endTimezone': _endTimezone,
-      'isAllDay': _isAllDay,
+      'isAllDay': _isTodo ? !_setDueTime : _isAllDay,
       'isRepeating': _isTodo ? false : _isRepeating,
       'repeatType': (_isTodo || !_isRepeating) ? 'None' : _repeatType,
       'endOn': (!_isTodo && _isRepeating) ? _endOn : false,
@@ -1362,7 +1470,19 @@ class _CalendarPageState extends State<CalendarPage> {
               authToken: widget.authToken,
               currentSettings: _activeSettings,
               onSettingsChanged: (updated) async {
-                setState(() => _activeSettings = updated);
+                setState(() {
+                  _activeSettings = updated;
+                  final updatedTabKeys = [
+                    'calendar',
+                    if (updated.enableTodoList) 'todo',
+                    if (updated.enablePayroll) 'payroll',
+                    'settings',
+                  ];
+                  final settingsIdx = updatedTabKeys.indexOf('settings');
+                  if (settingsIdx != -1) {
+                    _currentTabIndex = settingsIdx;
+                  }
+                });
               },
               onLogout: widget.onLogout,
             )
@@ -1406,6 +1526,10 @@ class _CalendarPageState extends State<CalendarPage> {
                           _calendarFormat = format;
                         });
                       },
+                      onPageChanged: (focusedDay){
+                        _focusedDay = focusedDay;
+                        fetchEventsFromJava(targetYear: focusedDay.year, silent:true);
+                      },
                       calendarBuilders: CalendarBuilders(
                         markerBuilder: (context, date, events) {
                           if (events.isEmpty) return const SizedBox();
@@ -1442,6 +1566,7 @@ class _CalendarPageState extends State<CalendarPage> {
                             _focusedDay = picked;
                             _selectedDay = picked;
                           });
+                          await fetchEventsFromJava(targetYear: picked.year);
                         }
                       },
                     ),
@@ -1452,6 +1577,10 @@ class _CalendarPageState extends State<CalendarPage> {
                         itemCount: _selectedEvents.length,
                         itemBuilder: (context, index) {
                           final event = _selectedEvents[index];
+                          final bool isDueToday = event.isTodo && isSameDay(event.displayEndTime, DateTime.now());
+                          final bool isHighPriorityTodo = event.isTodo &&
+                              event.id != null &&
+                              _highPriorityTodoEventIds.contains(event.id);
                           return ListTile(
                             leading: Icon(
                               event.isTodo
@@ -1468,14 +1597,36 @@ class _CalendarPageState extends State<CalendarPage> {
                               ),
                             ),
                             subtitle: Text(
-                              event.isTodo 
-                                ? (event.isAllDay
-                                ? "Due: All-Day"
-                                : "Due: ${DateFormat('MMM d, HH:mm').format(event.displayEndTime)} (${event.timezone.split('/').last})")
+                              event.isTodo
+                                ? (isDueToday
+                                    ? (event.isAllDay
+                                        ? "Due: TODAY"
+                                        : "Due: TODAY, ${DateFormat('HH:mm').format(event.displayEndTime)} (${event.timezone.split('/').last})")
+                                    : (event.isAllDay
+                                        ? "Due: ${DateFormat('MMM d').format(event.displayEndTime)}"
+                                        : "Due: ${DateFormat('MMM d, HH:mm').format(event.displayEndTime)} (${event.timezone.split('/').last})"))
                                 : (event.isAllDay
-                                ? "All-Day"
-                                : "${DateFormat('MMM d, HH:mm').format(event.displayEffectiveTime)}(${event.startTimezone.split('/').last}) - ${DateFormat('MMM d, HH:mm').format(event.displayEndTime)}(${event.endTimezone.split('/').last})"),
+                                    ? "All-Day"
+                                    : "${DateFormat('MMM d, HH:mm').format(event.displayEffectiveTime)}(${event.startTimezone.split('/').last}) - ${DateFormat('MMM d, HH:mm').format(event.displayEndTime)}(${event.endTimezone.split('/').last})"),
                             ),
+                            trailing: isHighPriorityTodo
+                                ? Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: Colors.redAccent.withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
+                                    ),
+                                    child: const Text(
+                                      'HIGH',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.redAccent,
+                                      ),
+                                    ),
+                                  )
+                                : null,
                             onTap: () {
                               Navigator.push(
                                 context,
