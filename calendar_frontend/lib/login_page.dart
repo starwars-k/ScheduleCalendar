@@ -6,7 +6,7 @@ import 'package:calendar_frontend/initialSetupPage.dart';
 
 class LoginPage extends StatefulWidget {
   final String backendBaseUrl;
-  final void Function(String token, String username, UserAppSettings settings) onLoginSuccess;
+  final void Function(String token, String username, UserAppSettings settings, bool isRegisterMode) onLoginSuccess;
   const LoginPage({
     super.key,
     required this.backendBaseUrl,
@@ -59,7 +59,15 @@ class _LoginPageState extends State<LoginPage> {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'username': username, 'password': password}),
       );
-      final data = response.body.isNotEmpty ? jsonDecode(response.body) : {};
+      Map<String, dynamic> data = {};
+      if (response.body.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(response.body);
+          if (decoded is Map<String, dynamic>) {
+            data = decoded;
+          }
+        } catch (_) {}
+      }
       if(response.statusCode == 200 || response.statusCode == 201){
         final token = data['token'] as String;
         final username = data['username'] as String;
@@ -69,14 +77,17 @@ class _LoginPageState extends State<LoginPage> {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('auth_token', token);
         await prefs.setString('auth_username', username);
+        if (data['userId'] != null) {
+          await prefs.setString('auth_userId', data['userId'].toString());
+        }
         await settings.saveToCache();
 
         if(mounted){
-          widget.onLoginSuccess(token, username, settings);
+          widget.onLoginSuccess(token, username, settings, _isRegisterMode);
         }
       }else{
         setState(() {
-          _errorMessage = data['error']?.toString() ?? 'Authentication failed. Please try again.';
+          _errorMessage = data['error']?.toString() ?? 'Server error (${response.statusCode}). Please try again.';
         });
       }
     }catch(e){
@@ -116,8 +127,8 @@ class _LoginPageState extends State<LoginPage> {
                   TextField(
                     controller: _usernameController,
                     enabled: !_isSubmitting,
-                    decoration: const InputDecoration(
-                      labelText: 'Username',
+                    decoration: InputDecoration(
+                      labelText: _isRegisterMode ? 'Username (min 3 characters)' : 'Username',
                       border: OutlineInputBorder()
                     ),
                   ),
@@ -154,6 +165,7 @@ class _LoginPageState extends State<LoginPage> {
                       setState(() {
                         _isRegisterMode = !_isRegisterMode;
                         _errorMessage = null;
+                        _passwordController.clear();
                       });
                     },
                     child: Text(_isRegisterMode ? 'Already have an account? Login' : 'Don\'t have an account? Create one'),

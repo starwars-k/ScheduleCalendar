@@ -35,7 +35,8 @@ class EventDetailPage extends StatefulWidget {
 class _EventDetailPageState extends State<EventDetailPage> {
   late String _eventType;
   bool _isUpdatedFromOutSide = false;
-  static const String _baseUrl = 'https://calendar-backend-qhny.onrender.com';
+  //static const String _baseUrl = 'https://calendar-backend-qhny.onrender.com';
+  static const String _baseUrl = 'http://localhost:8080';
   Map<String, String> _headers({bool json = false}) {
     final headers = <String, String>{
       'Authorization': 'Bearer ${widget.authToken}',
@@ -151,7 +152,7 @@ class _EventDetailPageState extends State<EventDetailPage> {
           'title': widget.event.title,
           'description': widget.event.description,
           'eventType': newType,
-          'startTime': widget.event.displayStartTime.toIso8601String(),
+          'startTime': widget.event.isTodo ? null : widget.event.displayStartTime?.toIso8601String(),
           'endTime': widget.event.displayEndTime.toIso8601String(),
           'timezone': widget.event.timezone,
           'startTimezone':widget.event.startTimezone,
@@ -162,7 +163,9 @@ class _EventDetailPageState extends State<EventDetailPage> {
           'endOn': widget.event.endOn ?? (widget.event.repeatEndOn != null),
           'repeatEndOn': widget.event.repeatEndOn != null
             ? DailyEvent.convertUtcToTimezone(widget.event.repeatEndOn!, widget.event.startTimezone).toIso8601String()
-            : null,      
+            : null,
+          'isTodo':widget.event.isTodo,
+          'isComplete': widget.event.isComplete,
         };
         final response = await http.put(
           Uri.parse('$_baseUrl/api/events/${widget.event.id}'),
@@ -201,8 +204,17 @@ class _EventDetailPageState extends State<EventDetailPage> {
   }
 
   Widget _buildTimeWidget(){
-    final start = widget.event.displayStartTime;
     final end = widget.event.displayEndTime;
+    if(widget.event.isTodo) {
+      final String dueText = widget.event.isAllDay
+        ? 'Due Date: ${DateFormat('EEEE, MMMM dd, yyyy').format(end)} (All-Day)'
+        : 'Due Time: ${DateFormat('EEEE, MMMM dd, yyyy HH:mm').format(end)} (${widget.event.timezone.split('/').last})';
+      return Text(
+        dueText,
+        style: const TextStyle(fontSize: 15),
+      );
+    }
+    final start = widget.event.displayStartTime ?? end;
     bool isSameDay = start.year == end.year &&
       start.month == end.month &&
       start.day == end.day;

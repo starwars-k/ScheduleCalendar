@@ -27,7 +27,7 @@ public class AuthController {
                 "language", user.getLanguage(),
                 "enableTodoList", user.isEnableTodoList(),
                 "enablePayroll", user.isEnablePayroll(),
-                "setupCompleted", user.isSetupCompleted()
+                "setupComplete", user.isSetupComplete()
         );
     }
 
@@ -36,8 +36,8 @@ public class AuthController {
         String username = request.get("username") != null ? request.get("username").toString() : "";
         String password = request.get("password") != null ? request.get("password").toString() : "";
 
-        if (username.trim().length() < 5) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Username must be at least 5 characters"));
+        if (username.trim().length() < 3) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Username must be at least 3 characters"));
         }
         if (password.length() < 6) {
             return ResponseEntity.badRequest().body(Map.of("error", "Password must be at least 6 characters"));
@@ -49,6 +49,9 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.CREATED).body(buildAuthResponse(token, user));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", "Registration failed: " + e.getMessage()));
         }
     }
 

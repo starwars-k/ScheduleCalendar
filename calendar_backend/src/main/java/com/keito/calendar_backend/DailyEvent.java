@@ -38,6 +38,13 @@ public class DailyEvent {
     private String description;
     private String eventType;
     private String seriesId;
+    @JsonProperty("isTodo")
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean isTodo = false;
+    private Long linkedTodoId;
+    @JsonProperty("isComplete")
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean isComplete = false;
   
     public DailyEvent(){}
     
@@ -98,4 +105,13 @@ public class DailyEvent {
 
     public String getEndTimezone(){return endTimezone != null ? endTimezone : eventTimezone;}
     public void setEndTimezone(String endTimezone){this.endTimezone = endTimezone;}
+
+    public boolean getIsTodo(){return isTodo;}
+    public void setIsTodo(boolean isTodo) { this.isTodo = isTodo; }
+
+    public Long getLinkedTodoId() { return linkedTodoId; }
+    public void setLinkedTodoId(Long linkedTodoId) { this.linkedTodoId = linkedTodoId; }
+
+    public boolean getIsComplete() { return isComplete; }
+    public void setIsComplete(boolean isComplete) { this.isComplete = isComplete; }
 }
