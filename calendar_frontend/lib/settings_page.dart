@@ -24,30 +24,46 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
+  static const Map<String, String> _languageOptions = {
+    'en' : 'Engish',
+    'ja' : '日本語 (Japanese)',
+  };
   late bool _todoEnabled;
   late bool _payrollEnabled;
+  late String _selectedLanguage;
   bool _isSaving = false;
+
+  bool get _isJapanese => _selectedLanguage == 'ja';
 
   @override
   void initState() {
     super.initState();
     _todoEnabled = widget.currentSettings.enableTodoList;
     _payrollEnabled = widget.currentSettings.enablePayroll;
+    _selectedLanguage = _languageOptions.containsKey(widget.currentSettings.language)
+      ? widget.currentSettings.language
+      : 'end';
   }
 
-  Future<void> _updateModuleToggle({
-    required bool nextTodo,
-    required bool nextPayroll,
+  Future<void> _updateSettings({
+    bool? nextTodo,
+    bool? nextPayroll,
+    String? nextLanguage,
   }) async {
+    final resolvedTodo = nextTodo ?? _todoEnabled;
+    final resolvedPayroll = nextPayroll ?? _payrollEnabled;
+    final resolvedLanguage = nextLanguage ?? _selectedLanguage;
     setState(() {
-      _todoEnabled = nextTodo;
-      _payrollEnabled = nextPayroll;
+      _todoEnabled = resolvedTodo;
+      _payrollEnabled = resolvedPayroll;
+      _selectedLanguage = resolvedLanguage;
       _isSaving = true;
     });
 
     final updated = widget.currentSettings.copyWith(
-      enableTodoList: nextTodo,
-      enablePayroll: nextPayroll,
+      language: resolvedLanguage,
+      enableTodoList: resolvedTodo,
+      enablePayroll: resolvedPayroll,
     );
 
     await updated.saveToCache();
@@ -61,9 +77,9 @@ class _SettingsPageState extends State<SettingsPage> {
         },
         body: jsonEncode({
           'timezone': updated.timezone,
-          'language': updated.language,
-          'enableTodoList': nextTodo,
-          'enablePayroll': nextPayroll,
+          'language': resolvedLanguage,
+          'enableTodoList': resolvedTodo,
+          'enablePayroll': resolvedPayroll,
           'convertExistingEvents': false,
         }),
       );
@@ -95,7 +111,7 @@ class _SettingsPageState extends State<SettingsPage> {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(
-        'Coming Soon',
+        _isJapanese ? '順次追加予定' : 'Coming Soon',
         style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w600,
@@ -110,9 +126,40 @@ class _SettingsPageState extends State<SettingsPage> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16,16,16,110),
       children: [
-        const Text(
-          'Modules',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        Text(
+          _isJapanese ? '言語 (Language)' : 'Language',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: DropdownButtonFormField<String>(
+              initialValue: _selectedLanguage,
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.language),
+                border: OutlineInputBorder(),
+              ),
+              items: _languageOptions.entries.map((entry) {
+                return DropdownMenuItem<String>(
+                  value: entry.key,
+                  child: Text(entry.value),
+                );
+              }).toList(),
+              onChanged: _isSaving
+                  ? null
+                  : (String? newValue) {
+                      if (newValue != null && newValue != _selectedLanguage) {
+                        _updateSettings(nextLanguage: newValue);
+                      }
+                    },
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        Text(
+          _isJapanese ? 'モジュール' : 'Modules',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         Card(
@@ -120,12 +167,14 @@ class _SettingsPageState extends State<SettingsPage> {
             children: [
               SwitchListTile(
                 secondary: const Icon(Icons.check_circle_outline),
-                title: const Text('To-Do List'),
-                subtitle: const Text('Show To-Do List tab & sync due tasks with calendar'),
+                title: Text(_isJapanese ? 'To-Do リスト' : 'To-Do List'),
+                subtitle: Text(_isJapanese 
+                  ? 'To-Do タブを表示し、期限タスクをカレンダーと同期します'
+                  : 'Show To-Do List tab & sync due tasks with calendar'),
                 value: _todoEnabled,
                 onChanged: _isSaving
                     ? null
-                    : (val) => _updateModuleToggle(
+                    : (val) => _updateSettings(
                           nextTodo: val,
                           nextPayroll: _payrollEnabled,
                         ),
@@ -137,11 +186,14 @@ class _SettingsPageState extends State<SettingsPage> {
                   spacing: 8,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    const Text('Payroll'),
+                    Text(_isJapanese ? '給与計算(Payroll)' : 'Payroll'),
                     _buildComingSoonBadge(),
                   ],
                 ),
-                subtitle: const Text('Show Payroll tab for shift & income tracking'),
+                subtitle: Text(
+                  _isJapanese
+                    ? 'シフト・収入管理用の給与タブを表示します'
+                    : 'Show Payroll tab for shift & income tracking'),
                 value: false,
                 onChanged: null,
               ),
@@ -149,15 +201,15 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ),
         const SizedBox(height: 24),
-        const Text(
-          'Account',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        Text(
+          _isJapanese ? 'アカウント' : 'Account',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         Card(
           child: ListTile(
             leading: const Icon(Icons.logout, color: Colors.redAccent),
-            title: const Text('Log Out'),
+            title: Text(_isJapanese ? 'ログアウト' : 'Log Out'),
             onTap: () => widget.onLogout(),
           ),
         ),

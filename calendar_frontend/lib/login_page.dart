@@ -128,7 +128,7 @@ class _LoginPageState extends State<LoginPage> {
                     controller: _usernameController,
                     enabled: !_isSubmitting,
                     decoration: InputDecoration(
-                      labelText: _isRegisterMode ? 'Username (min 3 characters)' : 'Username (min 3 characters)',
+                      labelText: 'Username(min 3 characters)',
                       border: OutlineInputBorder()
                     ),
                   ),

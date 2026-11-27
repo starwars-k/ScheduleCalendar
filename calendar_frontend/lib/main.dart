@@ -1114,6 +1114,7 @@ class _CalendarPageState extends State<CalendarPage> {
       _currentTabIndex = 0;
     }
     final String activeTab = tabKeys[_currentTabIndex];
+    final bool isJapanese = _activeSettings.language == 'ja';
     Widget buildAppleDockBar() {
       return SafeArea(
         top: false,
@@ -1156,18 +1157,18 @@ class _CalendarPageState extends State<CalendarPage> {
                         break;
                       case 'payroll':
                         icon = Icons.payments_rounded;
-                        label = 'Payroll';
+                        label = isJapanese ? '給与' : 'Payroll';
                         accentColor = Colors.orange;
                         break;
                       case 'settings':
                         icon = Icons.settings_rounded;
-                        label = 'Settings';
+                        label = isJapanese ? '設定' : 'Settings';
                         accentColor = Colors.blueGrey;
                         break;
                       case 'calendar':
                       default:
                         icon = Icons.calendar_month_rounded;
-                        label = 'Calendar';
+                        label = isJapanese ? 'カレンダー' : 'Calendar';
                         accentColor = Colors.blue;
                         break;
                     }
@@ -1236,10 +1237,10 @@ class _CalendarPageState extends State<CalendarPage> {
       );
     }
 
-    String appBarTitleBase = 'Schedule Calendar';
-    if (activeTab == 'todo') appBarTitleBase = 'To-Do List';
-    if (activeTab == 'payroll') appBarTitleBase = 'Payroll';
-    if (activeTab == 'settings') appBarTitleBase = 'Settings';
+    String appBarTitleBase = isJapanese ? 'スケジュールカレンダー' : 'Schedule Calendar';
+    if (activeTab == 'todo') appBarTitleBase = isJapanese ? 'To-Do リスト' : 'To-Do List';
+    if (activeTab == 'payroll') appBarTitleBase = isJapanese ? '給与計算' : 'Payroll';
+    if (activeTab == 'settings') appBarTitleBase = isJapanese ? '設定' : 'Settings';
 
     return Scaffold(
       appBar: AppBar(
