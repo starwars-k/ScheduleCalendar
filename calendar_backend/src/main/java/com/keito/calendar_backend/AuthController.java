@@ -23,6 +23,7 @@ public class AuthController {
                 "token", token,
                 "username", user.getUsername(),
                 "userId", user.getId(),
+                "email", user.getEmail() != null ? user.getEmail() : "",
                 "timezone", user.getTimezone(),
                 "language", user.getLanguage(),
                 "enableTodoList", user.isEnableTodoList(),
@@ -34,17 +35,22 @@ public class AuthController {
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody Map<String, Object> request) {
         String username = request.get("username") != null ? request.get("username").toString() : "";
+        String email = request.get("email") != null ? request.get("email").toString() : "";
         String password = request.get("password") != null ? request.get("password").toString() : "";
+        String language = request.get("language") != null ? request.get("language").toString() : "en";
 
         if (username.trim().length() < 3) {
             return ResponseEntity.badRequest().body(Map.of("error", "Username must be at least 3 characters"));
+        }
+        if (!email.trim().matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Please enter a valid email address"));
         }
         if (password.length() < 6) {
             return ResponseEntity.badRequest().body(Map.of("error", "Password must be at least 6 characters"));
         }
 
         try {
-            User user = authService.register(username, password);
+            User user = authService.register(username, email, password, language);
             String token = authService.generateToken(user.getId());
             return ResponseEntity.status(HttpStatus.CREATED).body(buildAuthResponse(token, user));
         } catch (IllegalArgumentException e) {
@@ -57,16 +63,60 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, Object> request) {
-        String username = request.get("username") != null ? request.get("username").toString() : "";
+        String identifier = request.get("identifier") != null
+                ? request.get("identifier").toString()
+                : (request.get("username") != null ? request.get("username").toString() : "");
         String password = request.get("password") != null ? request.get("password").toString() : "";
 
-        Optional<User> userOpt = authService.authenticate(username, password);
+        Optional<User> userOpt = authService.authenticate(identifier, password);
         if (userOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "username or password is wrong"));
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Username/email or password is wrong"));
         }
 
         User user = userOpt.get();
         String token = authService.generateToken(user.getId());
         return ResponseEntity.ok(buildAuthResponse(token, user));
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<?> forgotPassword(@RequestBody Map<String, Object> request) {
+        String identifier = request.get("identifier") != null ? request.get("identifier").toString() : "";
+        if (identifier.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Please enter your email or username"));
+        }
+
+        Optional<String> tokenOpt = authService.initiatePasswordReset(identifier);
+        if (tokenOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "No account found with that email or username"));
+        }
+
+        boolean emailSent = authService.isEmailDeliveryConfigured();
+        if (emailSent) {
+            return ResponseEntity.ok(Map.of(
+                    "emailSent", true,
+                    "message", "Password reset code sent to your email."
+            ));
+        }
+        return ResponseEntity.ok(Map.of(
+                "emailSent", false,
+                "resetToken", tokenOpt.get(),
+                "message", "Use the reset code below to set a new password."
+        ));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<?> resetPassword(@RequestBody Map<String, Object> request) {
+        String resetToken = request.get("resetToken") != null ? request.get("resetToken").toString() : "";
+        String newPassword = request.get("newPassword") != null ? request.get("newPassword").toString() : "";
+
+        if (newPassword.length() < 6) {
+            return ResponseEntity.badRequest().body(Map.of("error", "New password must be at least 6 characters"));
+        }
+
+        boolean updated = authService.resetPassword(resetToken, newPassword);
+        if (!updated) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid or expired reset code"));
+        }
+        return ResponseEntity.ok(Map.of("message", "Password has been reset successfully."));
     }
 }

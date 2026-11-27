@@ -5,7 +5,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.keito.calendar_backend.DailyEvent;
+import com.keito.calendar_backend.EventRepository;
 import com.keito.calendar_backend.User;
+import com.keito.calendar_backend.UserRepository;
 
 import javax.crypto.Mac;
 import javax.crypto.SecretKeyFactory;
@@ -16,6 +18,10 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
@@ -25,15 +31,21 @@ public class AuthService {
     private final UserRepository userRepository;
     private final EventRepository eventRepository;
     private final String secretKey;
+    private final String resendApiKey;
+    private final String mailFrom;
 
     public AuthService(
         UserRepository userRepository,
         EventRepository eventRepository,
-        @Value("${app.auth.secret:change-this-secret-key-in-render-env}") String secretKey
+        @Value("${app.auth.secret:change-this-secret-key-in-render-env}") String secretKey,
+        @Value("${app.mail.resend-api-key:}") String resendApiKey,
+        @Value("${app.mail.from:onboarding@resend.dev}") String mailFrom
     ){
         this.userRepository = userRepository;
         this.eventRepository = eventRepository;
         this.secretKey = secretKey;
+        this.resendApiKey = resendApiKey;
+        this.mailFrom = mailFrom;
     }
 
     public String hashPassword(String rawPassword) {
@@ -67,12 +79,23 @@ public class AuthService {
     }
 
     @Transactional
-    public User register(String username, String rawPassword) {
+    public User register(String username, String email, String rawPassword, String language) {
         String normalizedUsername = username.trim().toLowerCase();
         if (userRepository.existsByUsername(normalizedUsername)) {
             throw new IllegalArgumentException("Username is already taken");
         }
+        String normalizedEmail = null;
+        if (email != null && !email.isBlank()) {
+            normalizedEmail = email.trim().toLowerCase();
+            if (userRepository.existsByEmail(normalizedEmail)) {
+                throw new IllegalArgumentException("Email is already registered");
+            }
+        }
         User user = new User(normalizedUsername, hashPassword(rawPassword));
+        user.setEmail(normalizedEmail);
+        if ("ja".equals(language)) {
+            user.setLanguage("ja");
+        }
         User savedUser = userRepository.save(user);
         seedDefaultEventsForUser(savedUser.getId());
         return savedUser;
@@ -118,10 +141,102 @@ public class AuthService {
         eventRepository.saveAll(List.of(projectStart, defaultEvent, backendUpload));
     }
 
-    public Optional<User> authenticate(String username, String rawPassword) {
-        String normalizedUsername = username.trim().toLowerCase();
-        return userRepository.findByUsername(normalizedUsername)
+    public Optional<User> authenticate(String identifier, String rawPassword) {
+        String normalized = identifier.trim().toLowerCase();
+        Optional<User> userOpt = normalized.contains("@")
+                ? userRepository.findByEmail(normalized)
+                : userRepository.findByUsername(normalized);
+        if (userOpt.isEmpty() && !normalized.contains("@")) {
+            userOpt = userRepository.findByEmail(normalized);
+        }
+        return userOpt
                 .filter(user -> verifyPassword(rawPassword, user.getPasswordHash()));
+    }
+
+    public boolean isEmailDeliveryConfigured() {
+        return resendApiKey != null && !resendApiKey.isBlank();
+    }
+
+    public Optional<String> initiatePasswordReset(String identifier) {
+        String normalized = identifier.trim().toLowerCase();
+        Optional<User> userOpt = normalized.contains("@")
+                ? userRepository.findByEmail(normalized)
+                : userRepository.findByUsername(normalized);
+        if (userOpt.isEmpty() && !normalized.contains("@")) {
+            userOpt = userRepository.findByEmail(normalized);
+        }
+        if (userOpt.isEmpty()) {
+            return Optional.empty();
+        }
+
+        User user = userOpt.get();
+        long expiresAt = System.currentTimeMillis() + (1000L * 60 * 15); // 15 min
+        String payload = "reset:" + user.getId() + ":" + expiresAt;
+        String signature = sign(payload);
+        String rawToken = payload + ":" + signature;
+        String resetToken = Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(rawToken.getBytes(StandardCharsets.UTF_8));
+
+        if (isEmailDeliveryConfigured() && user.getEmail() != null && !user.getEmail().isBlank()) {
+            sendResetEmailViaResend(user.getEmail(), resetToken);
+        }
+        return Optional.of(resetToken);
+    }
+
+    @Transactional
+    public boolean resetPassword(String resetToken, String newPassword) {
+        try {
+            if (resetToken == null || resetToken.isBlank()) return false;
+            String decoded = new String(Base64.getUrlDecoder().decode(resetToken.trim()), StandardCharsets.UTF_8);
+            String[] parts = decoded.split(":");
+            if (parts.length != 4 || !"reset".equals(parts[0])) return false;
+
+            Long userId = Long.parseLong(parts[1]);
+            long expiresAt = Long.parseLong(parts[2]);
+            String signature = parts[3];
+
+            if (System.currentTimeMillis() > expiresAt) return false;
+
+            String expectedSignature = sign(parts[0] + ":" + parts[1] + ":" + parts[2]);
+            if (!MessageDigest.isEqual(
+                    signature.getBytes(StandardCharsets.UTF_8),
+                    expectedSignature.getBytes(StandardCharsets.UTF_8))) {
+                return false;
+            }
+
+            Optional<User> userOpt = userRepository.findById(userId);
+            if (userOpt.isEmpty()) return false;
+
+            User user = userOpt.get();
+            user.setPasswordHash(hashPassword(newPassword));
+            userRepository.save(user);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void sendResetEmailViaResend(String toEmail, String resetToken) {
+        try {
+            String jsonBody = """
+                    {
+                      "from": "%s",
+                      "to": ["%s"],
+                      "subject": "Schedule Calendar - Password Reset Code",
+                      "text": "Your password reset code (valid for 15 minutes):\\n\\n%s"
+                    }
+                    """.formatted(mailFrom, toEmail, resetToken);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("https://api.resend.com/emails"))
+                    .header("Authorization", "Bearer " + resendApiKey)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                    .build();
+            HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.discarding());
+        } catch (Exception e) {
+            System.err.println("Failed to send reset email: " + e.getMessage());
+        }
     }
 
     public String generateToken(Long userId) {

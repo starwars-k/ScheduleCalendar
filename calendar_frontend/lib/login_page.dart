@@ -20,45 +20,78 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final TextEditingController _usernameController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _isRegisterMode = false;
   bool _isSubmitting = false;
+  bool _obscurePassword = true;
+  bool _isJapanese = false;
   String? _errorMessage;
+  String? _successMessage;
 
   @override
-  void dispose(){
+  void dispose() {
     _usernameController.dispose();
+    _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
   Future<void> _sumbmitAuth() async {
-    if(_isSubmitting) return; // Prevent multiple submissionss
-    final username = _usernameController.text.trim();
+    if (_isSubmitting) return;
+    final identifierOrUsername = _usernameController.text.trim();
+    final email = _emailController.text.trim();
     final password = _passwordController.text;
 
-    if(username.isEmpty || password.isEmpty){
+    if (identifierOrUsername.isEmpty || password.isEmpty || (_isRegisterMode && email.isEmpty)) {
       setState(() {
-        _errorMessage = 'Please enter both username and password.';
+        _errorMessage = _isJapanese
+            ? 'すべての必須項目を入力してください。'
+            : 'Please fill in all required fields.';
+        _successMessage = null;
       });
       return;
     }
 
-    FocusScope.of(context).unfocus(); // Dismiss the keyboard
+    if (_isRegisterMode && !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+      setState(() {
+        _errorMessage = _isJapanese
+            ? '有効なメールアドレスを入力してください。'
+            : 'Please enter a valid email address.';
+        _successMessage = null;
+      });
+      return;
+    }
+
+    FocusScope.of(context).unfocus();
 
     setState(() {
       _isSubmitting = true;
       _errorMessage = null;
+      _successMessage = null;
     });
 
     final endpoint = _isRegisterMode ? '/api/auth/register' : '/api/auth/login';
     final uri = Uri.parse('${widget.backendBaseUrl}$endpoint');
 
-    try{
+    try {
+      final Map<String, dynamic> payload = _isRegisterMode
+          ? {
+              'username': identifierOrUsername,
+              'email': email,
+              'password': password,
+              'language': _isJapanese ? 'ja' : 'en',
+            }
+          : {
+              'identifier': identifierOrUsername,
+              'username': identifierOrUsername,
+              'password': password,
+            };
+
       final response = await http.post(
         uri,
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'username': username, 'password': password}),
+        body: jsonEncode(payload),
       );
       Map<String, dynamic> data = {};
       if (response.body.isNotEmpty) {
@@ -69,12 +102,11 @@ class _LoginPageState extends State<LoginPage> {
           }
         } catch (_) {}
       }
-      if(response.statusCode == 200 || response.statusCode == 201){
+      if (response.statusCode == 200 || response.statusCode == 201) {
         final token = data['token'] as String;
         final username = data['username'] as String;
         final settings = UserAppSettings.fromJson(data);
 
-        // Store the token and username in SharedPreferences
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('auth_token', token);
         await prefs.setString('auth_username', username);
@@ -83,26 +115,310 @@ class _LoginPageState extends State<LoginPage> {
         }
         await settings.saveToCache();
 
-        if(mounted){
+        if (mounted) {
           widget.onLoginSuccess(token, username, settings, _isRegisterMode);
         }
-      }else{
+      } else {
         setState(() {
-          _errorMessage = data['error']?.toString() ?? 'Server error (${response.statusCode}). Please try again.';
+          _errorMessage = data['error']?.toString() ??
+              (_isJapanese
+                  ? 'サーバーエラー (${response.statusCode}) が発生しました。'
+                  : 'Server error (${response.statusCode}). Please try again.');
         });
       }
-    }catch(e){
+    } catch (e) {
       setState(() {
-        _errorMessage = 'Network error. Please check your connection and try again.';
+        _errorMessage = _isJapanese
+            ? '通信エラーが発生しました。接続を確認して再試行してください。'
+            : 'Network error. Please check your connection and try again.';
       });
-    }finally{
-      if(mounted){
+    } finally {
+      if (mounted) {
         setState(() {
           _isSubmitting = false;
         });
       }
     }
   }
+
+  Future<void> _showForgotPasswordModal() async {
+    final identifierCtrl = TextEditingController(text: _usernameController.text.trim());
+    final resetTokenCtrl = TextEditingController();
+    final newPasswordCtrl = TextEditingController();
+    bool stepTwo = false;
+    bool sending = false;
+    bool obscureNewPassword = true;
+    String? modalError;
+    String? modalInfo;
+
+    const Color appleRed = Color(0xFFFF3B30);
+    const Color appleGroupedBg = Color(0xFFF2F2F7);
+    const Color appleHairline = Color(0xFFE5E5EA);
+    const Color appleSecondaryLabel = Color(0xFF8E8E93);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      constraints: const BoxConstraints(maxWidth: 460),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          Future<void> requestResetCode() async {
+            final idText = identifierCtrl.text.trim();
+            if (idText.isEmpty) {
+              setModalState(() {
+                modalError = _isJapanese
+                    ? 'メールアドレスまたはユーザー名を入力してください。'
+                    : 'Please enter your email or username.';
+              });
+              return;
+            }
+            setModalState(() {
+              sending = true;
+              modalError = null;
+            });
+            try {
+              final res = await http.post(
+                Uri.parse('${widget.backendBaseUrl}/api/auth/forgot-password'),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode({'identifier': idText}),
+              );
+              final Map<String, dynamic> body = res.body.isNotEmpty
+                  ? jsonDecode(res.body) as Map<String, dynamic>
+                  : {};
+              if (res.statusCode == 200) {
+                final returnedToken = body['resetToken']?.toString() ?? '';
+                if (returnedToken.isNotEmpty) {
+                  resetTokenCtrl.text = returnedToken;
+                }
+                setModalState(() {
+                  stepTwo = true;
+                  modalInfo = body['emailSent'] == true
+                      ? (_isJapanese
+                          ? '登録メールアドレスにリセットコードを送信しました。'
+                          : 'A reset code has been sent to your email.')
+                      : (_isJapanese
+                          ? '下の再設定コードと新しいパスワードを入力してください。'
+                          : 'Enter the reset code below and choose a new password.');
+                });
+              } else {
+                setModalState(() {
+                  modalError = body['error']?.toString() ??
+                      (_isJapanese ? 'アカウントが見つかりません。' : 'Account not found.');
+                });
+              }
+            } catch (_) {
+              setModalState(() {
+                modalError = _isJapanese
+                    ? '通信エラーが発生しました。'
+                    : 'Network error. Please try again.';
+              });
+            } finally {
+              setModalState(() => sending = false);
+            }
+          }
+
+          Future<void> submitNewPassword() async {
+            final code = resetTokenCtrl.text.trim();
+            final newPass = newPasswordCtrl.text;
+            if (code.isEmpty || newPass.length < 6) {
+              setModalState(() {
+                modalError = _isJapanese
+                    ? 'リセットコードと6文字以上の新しいパスワードを入力してください。'
+                    : 'Enter the reset code and a password (min 6 characters).';
+              });
+              return;
+            }
+            setModalState(() {
+              sending = true;
+              modalError = null;
+            });
+            try {
+              final res = await http.post(
+                Uri.parse('${widget.backendBaseUrl}/api/auth/reset-password'),
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode({
+                  'resetToken': code,
+                  'newPassword': newPass,
+                }),
+              );
+              final Map<String, dynamic> body = res.body.isNotEmpty
+                  ? jsonDecode(res.body) as Map<String, dynamic>
+                  : {};
+              if (res.statusCode == 200) {
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (mounted) {
+                  setState(() {
+                    _passwordController.clear();
+                    _errorMessage = null;
+                    _successMessage = _isJapanese
+                        ? 'パスワードを更新しました。新しいパスワードでログインしてください。'
+                        : 'Password updated. Please sign in with your new password.';
+                  });
+                }
+              } else {
+                setModalState(() {
+                  modalError = body['error']?.toString() ??
+                      (_isJapanese ? 'コードが無効または期限切れです。' : 'Invalid or expired reset code.');
+                });
+              }
+            } catch (_) {
+              setModalState(() {
+                modalError = _isJapanese ? '通信エラーが発生しました。' : 'Network error. Please try again.';
+              });
+            } finally {
+              setModalState(() => sending = false);
+            }
+          }
+
+          return Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              child: Container(
+                color: appleGroupedBg,
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 36,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFC7C7CC),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: () => Navigator.pop(ctx),
+                          child: Text(
+                            _isJapanese ? 'キャンセル' : 'Cancel',
+                            style: const TextStyle(color: appleRed, fontSize: 15),
+                          ),
+                        ),
+                        Text(
+                          _isJapanese ? 'パスワード再設定' : 'Reset Password',
+                          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(width: 60),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      stepTwo
+                          ? (modalInfo ?? '')
+                          : (_isJapanese
+                              ? '登録済みのメールアドレスまたはユーザー名を入力してください。'
+                              : 'Enter your registered email address or username.'),
+                      style: const TextStyle(fontSize: 13, color: appleSecondaryLabel),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        children: [
+                          if (!stepTwo)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                              child: TextField(
+                                controller: identifierCtrl,
+                                enabled: !sending,
+                                keyboardType: TextInputType.emailAddress,
+                                decoration: InputDecoration(
+                                  hintText: _isJapanese ? 'メールアドレスまたはユーザー名' : 'Email or Username',
+                                  hintStyle: const TextStyle(color: CupertinoColors.placeholderText),
+                                  border: InputBorder.none,
+                                ),
+                              ),
+                            )
+                          else ...[
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                              child: TextField(
+                                controller: resetTokenCtrl,
+                                enabled: !sending,
+                                decoration: InputDecoration(
+                                  hintText: _isJapanese ? 'リセットコード' : 'Reset Code',
+                                  hintStyle: const TextStyle(color: CupertinoColors.placeholderText),
+                                  border: InputBorder.none,
+                                ),
+                              ),
+                            ),
+                            const Divider(height: 1, thickness: 0.5, indent: 16, color: appleHairline),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                              child: TextField(
+                                controller: newPasswordCtrl,
+                                enabled: !sending,
+                                obscureText: obscureNewPassword,
+                                decoration: InputDecoration(
+                                  hintText: _isJapanese ? '新しいパスワード（6文字以上）' : 'New Password (min 6 chars)',
+                                  hintStyle: const TextStyle(color: CupertinoColors.placeholderText),
+                                  border: InputBorder.none,
+                                  suffixIcon: IconButton(
+                                    icon: Icon(
+                                      obscureNewPassword ? CupertinoIcons.eye : CupertinoIcons.eye_slash,
+                                      size: 19,
+                                      color: appleSecondaryLabel,
+                                    ),
+                                    onPressed: () => setModalState(() => obscureNewPassword = !obscureNewPassword),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (modalError != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        modalError!,
+                        style: const TextStyle(color: appleRed, fontSize: 13),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                    const SizedBox(height: 18),
+                    CupertinoButton(
+                      color: appleRed,
+                      borderRadius: BorderRadius.circular(12),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      onPressed: sending ? null : (stepTwo ? submitNewPassword : requestResetCode),
+                      child: sending
+                          ? const CupertinoActivityIndicator(color: Colors.white)
+                          : Text(
+                              stepTwo
+                                  ? (_isJapanese ? 'パスワードを変更' : 'Update Password')
+                                  : (_isJapanese ? '次へ' : 'Continue'),
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     const Color appleRed = Color(0xFFFF3B30);
@@ -117,55 +433,100 @@ class _LoginPageState extends State<LoginPage> {
         child: SafeArea(
           child: Center(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 400),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Apple Calendar Icon Badge
-                    Center(
+                    // Language Selector (English / 日本語)
+                    Align(
+                      alignment: Alignment.centerRight,
                       child: Container(
-                        width: 72,
-                        height: 72,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(18),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.08),
-                              blurRadius: 16,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: appleHairline, width: 0.8),
                         ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(
-                              DateTime.now().month.toString(),
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: appleRed,
-                              ),
-                            ),
-                            Text(
-                              DateTime.now().day.toString(),
-                              style: const TextStyle(
-                                fontSize: 30,
-                                fontWeight: FontWeight.w300,
-                                height: 1.05,
-                                color: Colors.black,
+                            const Icon(CupertinoIcons.globe, color: appleRed, size: 17),
+                            const SizedBox(width: 6),
+                            DropdownButtonHideUnderline(
+                              child: DropdownButton<bool>(
+                                value: _isJapanese,
+                                isDense: true,
+                                icon: const Icon(
+                                  CupertinoIcons.chevron_up_chevron_down,
+                                  size: 14,
+                                  color: appleSecondaryLabel,
+                                ),
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.black87,
+                                ),
+                                items: const [
+                                  DropdownMenuItem<bool>(
+                                    value: false,
+                                    child: Text('English'),
+                                  ),
+                                  DropdownMenuItem<bool>(
+                                    value: true,
+                                    child: Text('日本語 (Japanese)'),
+                                  ),
+                                ],
+                                onChanged: _isSubmitting
+                                    ? null
+                                    : (bool? val) {
+                                        if (val != null) {
+                                          setState(() {
+                                            _isJapanese = val;
+                                            _errorMessage = null;
+                                          });
+                                        }
+                                      },
                               ),
                             ),
                           ],
                         ),
                       ),
                     ),
+                    const SizedBox(height: 18),
+                    // Custom Schedule App Badge (Non-Apple Calendar Icon)
+                    Center(
+                      child: Container(
+                        width: 72,
+                        height: 72,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [Color(0xFFFF3B30), Color(0xFFFF6B5B)],
+                          ),
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: appleRed.withOpacity(0.28),
+                              blurRadius: 16,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.event_available_rounded,
+                          size: 38,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 16),
                     Text(
-                      _isRegisterMode ? 'Create Account' : 'Schedule Calendar',
+                      _isRegisterMode
+                          ? (_isJapanese ? 'アカウント作成' : 'Create Account')
+                          : 'Schedule Calendar',
                       style: const TextStyle(
                         fontSize: 26,
                         fontWeight: FontWeight.w700,
@@ -177,22 +538,32 @@ class _LoginPageState extends State<LoginPage> {
                     const SizedBox(height: 6),
                     Text(
                       _isRegisterMode
-                          ? 'Create an account to sync your calendar'
-                          : 'Sign in to access your schedule',
+                          ? (_isJapanese
+                              ? 'アカウントを作成して予定を同期します'
+                              : 'Create an account to sync your calendar')
+                          : (_isJapanese
+                              ? 'ログインしてスケジュールを確認'
+                              : 'Sign in to access your schedule'),
                       style: const TextStyle(fontSize: 14, color: appleSecondaryLabel),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 24),
                     CupertinoSlidingSegmentedControl<bool>(
                       groupValue: _isRegisterMode,
-                      children: const {
+                      children: {
                         false: Padding(
-                          padding: EdgeInsets.symmetric(vertical: 7),
-                          child: Text('Sign In', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                          padding: const EdgeInsets.symmetric(vertical: 7),
+                          child: Text(
+                            _isJapanese ? 'ログイン' : 'Sign In',
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                          ),
                         ),
                         true: Padding(
-                          padding: EdgeInsets.symmetric(vertical: 7),
-                          child: Text('Create Account', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                          padding: const EdgeInsets.symmetric(vertical: 7),
+                          child: Text(
+                            _isJapanese ? '新規登録' : 'Create Account',
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                          ),
                         ),
                       },
                       onValueChanged: (val) {
@@ -200,13 +571,14 @@ class _LoginPageState extends State<LoginPage> {
                           setState(() {
                             _isRegisterMode = val;
                             _errorMessage = null;
+                            _successMessage = null;
                             _passwordController.clear();
                           });
                         }
                       },
                     ),
                     const SizedBox(height: 18),
-                    // iOS Grouped Input Card
+                    // Grouped Input Card
                     Container(
                       decoration: BoxDecoration(
                         color: Colors.white,
@@ -219,40 +591,90 @@ class _LoginPageState extends State<LoginPage> {
                             child: TextField(
                               controller: _usernameController,
                               enabled: !_isSubmitting,
-                              decoration: const InputDecoration(
-                                hintText: 'Username (min 3 characters)',
-                                hintStyle: TextStyle(color: CupertinoColors.placeholderText),
+                              keyboardType: _isRegisterMode ? TextInputType.text : TextInputType.emailAddress,
+                              decoration: InputDecoration(
+                                hintText: _isRegisterMode
+                                    ? (_isJapanese ? 'ユーザー名（3文字以上）' : 'Username (min 3 characters)')
+                                    : (_isJapanese ? 'ユーザー名またはメールアドレス' : 'Username or Email'),
+                                hintStyle: const TextStyle(color: CupertinoColors.placeholderText),
                                 border: InputBorder.none,
                               ),
                             ),
                           ),
+                          if (_isRegisterMode) ...[
+                            const Divider(height: 1, thickness: 0.5, indent: 16, color: appleHairline),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                              child: TextField(
+                                controller: _emailController,
+                                enabled: !_isSubmitting,
+                                keyboardType: TextInputType.emailAddress,
+                                decoration: InputDecoration(
+                                  hintText: _isJapanese ? 'メールアドレス' : 'Email address',
+                                  hintStyle: const TextStyle(color: CupertinoColors.placeholderText),
+                                  border: InputBorder.none,
+                                ),
+                              ),
+                            ),
+                          ],
                           const Divider(height: 1, thickness: 0.5, indent: 16, color: appleHairline),
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                            padding: const EdgeInsets.only(left: 16, right: 6, top: 4, bottom: 4),
                             child: TextField(
                               controller: _passwordController,
                               enabled: !_isSubmitting,
-                              obscureText: true,
+                              obscureText: _obscurePassword,
                               onSubmitted: (_) => _sumbmitAuth(),
-                              decoration: const InputDecoration(
-                                hintText: 'Password (min 6 characters)',
-                                hintStyle: TextStyle(color: CupertinoColors.placeholderText),
+                              decoration: InputDecoration(
+                                hintText: _isJapanese
+                                    ? 'パスワード（6文字以上）'
+                                    : 'Password (min 6 characters)',
+                                hintStyle: const TextStyle(color: CupertinoColors.placeholderText),
                                 border: InputBorder.none,
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _obscurePassword ? CupertinoIcons.eye : CupertinoIcons.eye_slash,
+                                    size: 19,
+                                    color: appleSecondaryLabel,
+                                  ),
+                                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                                ),
                               ),
                             ),
                           ),
                         ],
                       ),
                     ),
+                    if (!_isRegisterMode)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: CupertinoButton(
+                          padding: const EdgeInsets.only(top: 6, right: 2),
+                          minSize: 28,
+                          onPressed: _isSubmitting ? null : _showForgotPasswordModal,
+                          child: Text(
+                            _isJapanese ? 'パスワードをお忘れですか？' : 'Forgot Password?',
+                            style: const TextStyle(fontSize: 13, color: appleRed),
+                          ),
+                        ),
+                      ),
+                    if (_successMessage != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        _successMessage!,
+                        style: const TextStyle(color: Color(0xFF34C759), fontSize: 13, fontWeight: FontWeight.w500),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                     if (_errorMessage != null) ...[
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
                       Text(
                         _errorMessage!,
                         style: const TextStyle(color: appleRed, fontSize: 13),
                         textAlign: TextAlign.center,
                       ),
                     ],
-                    const SizedBox(height: 22),
+                    const SizedBox(height: 18),
                     CupertinoButton(
                       color: appleRed,
                       borderRadius: BorderRadius.circular(12),
@@ -261,7 +683,9 @@ class _LoginPageState extends State<LoginPage> {
                       child: _isSubmitting
                           ? const CupertinoActivityIndicator(color: Colors.white)
                           : Text(
-                              _isRegisterMode ? 'Create Account' : 'Sign In',
+                              _isRegisterMode
+                                  ? (_isJapanese ? 'アカウント作成' : 'Create Account')
+                                  : (_isJapanese ? 'ログイン' : 'Sign In'),
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
