@@ -9,8 +9,6 @@ import 'package:http/http.dart' as http;
 import 'dart:async';
 import 'dart:convert';
 
-final ValueNotifier<bool> globalLoading = ValueNotifier<bool>(false);
-
 class EventDetailPage extends StatefulWidget {
   final DailyEvent event;
   final String authToken;

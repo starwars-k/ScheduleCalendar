@@ -42,14 +42,18 @@ public class UserController {
     }
 
     private Map<String, Object> buildSettingsResponse(User user) {
-        return Map.of(
-                "username", user.getUsername(),
-                "timezone", user.getTimezone(),
-                "language", user.getLanguage(),
-                "enableTodoList", user.isEnableTodoList(),
-                "enablePayroll", user.isEnablePayroll(),
-                "setupComplete", user.isSetupComplete()
-        );
+        Map<String, Object> res = new java.util.HashMap<>();
+        res.put("username", user.getUsername());
+        res.put("email", user.getEmail() != null ? user.getEmail() : "");
+        res.put("birthday", user.getBirthday() != null ? user.getBirthday() : "");
+        res.put("currency", user.getCurrency() != null ? user.getCurrency() : \"USD");
+        res.put("timezone", user.getTimezone());
+        res.put("language", user.getLanguage());
+        res.put("enableTodoList", user.isEnableTodoList());
+        res.put("enablePayroll", user.isEnablePayroll());
+        res.put("enableNotifications", user.isEnableNotifications());
+        res.put("setupComplete", user.isSetupComplete());
+        return res;
     }
 
     @GetMapping("/settings")
