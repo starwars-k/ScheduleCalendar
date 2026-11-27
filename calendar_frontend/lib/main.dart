@@ -20,7 +20,15 @@ const String kBackendBaseUrl = 'https://calendar-backend-qhny.onrender.com';
 //const String kBackendBaseUrl = 'http://localhost:8080';
 final ValueNotifier<bool> globalLoading = ValueNotifier<bool>(false);
 
-void main() => runApp(
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  unawaited(
+    http
+        .get(Uri.parse('$kBackendBaseUrl/api/health'))
+        .timeout(const Duration(seconds: 90))
+        .catchError((_) => http.Response('', 503)),
+  );
+  runApp(
       MaterialApp(
         home: const AuthGatePage(),
         builder: (context, child) {
@@ -46,6 +54,7 @@ void main() => runApp(
         },
       ),
     );
+  }
 
 class AuthGatePage extends StatefulWidget {
   const AuthGatePage({super.key});
@@ -108,6 +117,9 @@ class _AuthGatePageState extends State<AuthGatePage> {
     await prefs.remove('auth_username');
     await prefs.remove('auth_userId');
     await prefs.remove('auth_user_settings');
+    for (final key in prefs.getKeys().where((k) => k.startsWith('cached_events_')).toList()) {
+      await prefs.remove(key);
+    }
     if (!mounted) return;
     setState(() {
       _token = null;
@@ -260,8 +272,39 @@ class _CalendarPageState extends State<CalendarPage> {
     _activeSettings = widget.appSettings;
     _startTimezone = _defaultUserTimezone();
     _endTimezone = _defaultUserTimezone();
-    fetchEventsFromJava();
+    _initLoadEvents();
   }
+
+  Future<void> _initLoadEvents() async {
+    final bool hasCache = await _loadCachedEvents(_focusedDay.year);
+    await fetchEventsFromJava(silent: hasCache);
+  }
+
+  Future<bool> _loadCachedEvents(int year) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('cached_events_$year');
+      if (raw == null || raw.isEmpty) return false;
+      final List<dynamic> decoded = jsonDecode(raw) as List<dynamic>;
+      final cached = decoded
+          .map((item) => DailyEvent.fromJson(item as Map<String, dynamic>))
+          .toList();
+      if (!mounted) return false;
+      setState(() => _events = cached);
+      return cached.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _saveCachedEvents(int year, List<DailyEvent> events) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode(events.map((e) => e.toJson()).toList());
+      await prefs.setString('cached_events_$year', encoded);
+    } catch (_) {}
+  }
+
 
   Future<bool?> _showAddEventDialog(
     BuildContext context,
@@ -1157,8 +1200,13 @@ class _CalendarPageState extends State<CalendarPage> {
             } catch (_) {}
           }
           if (!mounted) return;
+          final loadedEvents = body
+            .map((dynamic item) => DailyEvent.fromJson(item))
+            .cast<DailyEvent>()
+            .toList();
+          await _saveCachedEvents(yearToLoad, loadedEvents);
           setState(() {
-            _events = body.map((dynamic item) => DailyEvent.fromJson(item)).cast<DailyEvent>().toList();
+            _events = loadedEvents;
             _highPriorityTodoEventIds = highPriorityIds;
           });
         } else if (response.statusCode == 401) {

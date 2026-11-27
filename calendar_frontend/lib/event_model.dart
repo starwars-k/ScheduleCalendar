@@ -123,4 +123,25 @@ class DailyEvent {
       startTime != null ? convertUtcToTimezone(startTime!, startTimezone) : null;
   DateTime get displayEndTime => convertUtcToTimezone(endTime, endTimezone);
   DateTime get displayEffectiveTime => isTodo ? displayEndTime : (displayStartTime ?? displayEndTime);
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'description': description,
+    'startTime': startTime?.toIso8601String(),
+    'endTime': endTime.toIso8601String(),
+    'eventType': eventType,
+    'timezone': timezone,
+    'startTimezone': startTimezone,
+    'endTimezone': endTimezone,
+    'isAllDay': isAllDay,
+    'isRepeating': isRepeating,
+    'repeatType': repeatType,
+    'repeatEndOn': repeatEndOn?.toIso8601String(),
+    'endOn': endOn,
+    'seriesId': seriesId,
+    'isTodo': isTodo,
+    'linkedTodoId': linkedTodoId,
+    'isComplete': isComplete,
+  };
 }
