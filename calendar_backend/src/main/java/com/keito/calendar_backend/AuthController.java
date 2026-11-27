@@ -130,12 +130,18 @@ public class AuthController {
             @RequestHeader(value = "Authorization", required = false) String authHeader,
             @RequestBody Map<String, Object> request
     ) {
-        Long userId = authService.extractUserIdFromHeader(authHeader);
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Unauthorized"));
+        }
+        String token = authHeader.substring(7).trim();
+        Long userId = authService.parseUserIdFromToken(token).orElse(null);
         if (userId == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Unauthorized"));
         }
 
         try {
+            String username = request.containsKey("username") && request.get("username") != null
+                    ? request.get("username").toString() : null;
             String email = request.containsKey("email") && request.get("email") != null
                     ? request.get("email").toString() : null;
             String birthday = request.containsKey("birthday") && request.get("birthday") != null
@@ -152,10 +158,9 @@ public class AuthController {
             Boolean setupComplete = request.get("setupComplete") instanceof Boolean b4 ? b4 : null;
 
             User updated = authService.updateUserSettings(
-                    userId, email, birthday, currency, timezone, language,
+                    userId, username, email, birthday, currency, timezone, language,
                     enableTodoList, enablePayroll, enableNotifications, setupComplete
             );
-            String token = authHeader.replace("Bearer ", "").trim();
             return ResponseEntity.ok(buildAuthResponse(token, updated));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
@@ -167,7 +172,11 @@ public class AuthController {
             @RequestHeader(value = "Authorization", required = false) String authHeader,
             @RequestBody Map<String, Object> request
     ) {
-        Long userId = authService.extractUserIdFromHeader(authHeader);
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Unauthorized"));
+        }
+        String token = authHeader.substring(7).trim();
+        Long userId = authService.parseUserIdFromToken(token).orElse(null);
         if (userId == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Unauthorized"));
         }
@@ -190,11 +199,14 @@ public class AuthController {
             @RequestHeader(value = "Authorization", required = false) String authHeader,
             @RequestBody Map<String, Object> request
     ) {
-        Long userId = authService.extractUserIdFromHeader(authHeader);
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Unauthorized"));
+        }
+        String token = authHeader.substring(7).trim();
+        Long userId = authService.parseUserIdFromToken(token).orElse(null);
         if (userId == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Unauthorized"));
         }
-
         String password = request.get("password") != null ? request.get("password").toString() : "";
         if (password.isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Please enter your password to confirm deletion"));

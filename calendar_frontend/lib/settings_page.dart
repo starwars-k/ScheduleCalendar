@@ -1,5 +1,4 @@
 import 'dart:convert';
-
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -34,10 +33,14 @@ class _SettingsPageState extends State<SettingsPage> {
   late String _currency;
   late bool _enableTodoList;
   late bool _enablePayroll;
-  late bool _enableNotifications;
+  late bool _enableNotification;
   late TextEditingController _emailController;
+  late TextEditingController _usernameController;
+  late String _savedUsername;
+  late String _savedEmail;
+  bool _isEditingAccount = false;
+  bool _isSavingAccount = false;
   DateTime? _birthday;
-  bool _isSaving = false;
 
   static const Color appleRed = Color(0xFFFF3B30);
   static const Color appleGroupedBg = Color(0xFFF2F2F7);
@@ -54,8 +57,11 @@ class _SettingsPageState extends State<SettingsPage> {
     _currency = widget.initialSettings.currency == 'JPY' ? 'JPY' : 'USD';
     _enableTodoList = widget.initialSettings.enableTodoList;
     _enablePayroll = widget.initialSettings.enablePayroll;
-    _enableNotifications = widget.initialSettings.enableNotifications;
+    _enableNotification = widget.initialSettings.enableNotifications;
     _emailController = TextEditingController(text: widget.initialSettings.email);
+    _usernameController = TextEditingController(text: widget.username);
+    _savedUsername = widget.username;
+    _savedEmail = widget.initialSettings.email;
     if (widget.initialSettings.birthday.isNotEmpty) {
       _birthday = DateTime.tryParse(widget.initialSettings.birthday);
     }
@@ -64,6 +70,7 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void dispose() {
     _emailController.dispose();
+    _usernameController.dispose();
     super.dispose();
   }
 
@@ -75,8 +82,155 @@ class _SettingsPageState extends State<SettingsPage> {
     return '$y-$m-$d';
   }
 
+  String _extractFriendlyError(http.Response response, String fallback) {
+    if (response.statusCode == 404) {
+      return _isJa
+          ? 'APIが見つかりません (404)。ローカルでテストする場合は --dart-define=BACKEND_BASE_URL=http://localhost:8080 を指定するか、mainへマージしてRenderにデプロイしてください。'
+          : 'API endpoint not found (404). Run Flutter with --dart-define=BACKEND_BASE_URL=http://localhost:8080 for local testing, or deploy the updated backend.';
+    }
+    if (response.statusCode == 401) {
+      return _isJa
+          ? '認証の有効期限が切れました (401)。一度ログアウトして再ログインしてください。'
+          : 'Session expired (401). Please log out and log in again.';
+    }
+    try {
+      if (response.body.isNotEmpty) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          final msg = decoded['message']?.toString();
+          if (msg != null && msg.isNotEmpty && msg != 'Not Found' && msg != 'No message available') {
+            return msg;
+          }
+          final err = decoded['error']?.toString();
+          if (err != null && err.isNotEmpty && err != 'Not Found') {
+            return err;
+          }
+        }
+      }
+    } catch (_) {}
+    return '$fallback (HTTP ${response.statusCode})';
+  }
+
+  Future<bool> _autoSaveSettings({
+    String? usernameOverride,
+    String? emailOverride,
+    DateTime? birthdayOverride,
+    bool clearBirthday = false,
+    String? currencyOverride,
+    String? languageOverride,
+    bool? enableTodoListOverride,
+    bool showSuccessToast = false,
+  }) async {
+    final nextUsername = (usernameOverride ?? _savedUsername).trim();
+    final nextEmail = (emailOverride ?? _savedEmail).trim();
+
+    if (nextUsername.length < 3) {
+      _showSnack(
+        _isJa ? 'ユーザー名は3文字以上で入力してください。' : 'Username must be at least 3 characters.',
+        isError: true,
+      );
+      return false;
+    }
+
+    if (nextEmail.isNotEmpty && !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(nextEmail)) {
+      _showSnack(
+        _isJa ? '有効なメールアドレスを入力してください。' : 'Please enter a valid email address.',
+        isError: true,
+      );
+      return false;
+    }
+
+    final effectiveBday = clearBirthday ? null : (birthdayOverride ?? _birthday);
+    final bdayStr = effectiveBday == null ? '' : _formatBirthday(effectiveBday);
+    final nextCurrency = currencyOverride ?? _currency;
+    final nextLanguage = languageOverride ?? _language;
+    final nextTodo = enableTodoListOverride ?? _enableTodoList;
+
+    try {
+      final response = await http.put(
+        Uri.parse('${widget.backendBaseUrl}/api/auth/settings'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${widget.authToken}',
+        },
+        body: jsonEncode({
+          'username': nextUsername,
+          'email': nextEmail,
+          'birthday': bdayStr,
+          'currency': nextCurrency,
+          'timezone': _timezone,
+          'language': nextLanguage,
+          'enableTodoList': nextTodo,
+          'enablePayroll': false,
+          'enableNotifications': false,
+          'setupComplete': true,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = response.body.isNotEmpty
+            ? jsonDecode(response.body) as Map<String, dynamic>
+            : <String, dynamic>{};
+        final updated = UserAppSettings.fromJson(data);
+        await updated.saveToCache();
+        final prefs = await SharedPreferences.getInstance();
+        final updatedUser = data['username']?.toString() ?? nextUsername;
+        await prefs.setString('auth_username', updatedUser);
+        if (mounted) {
+          setState(() {
+            _savedUsername = updatedUser;
+            _usernameController.text = updatedUser;
+            _savedEmail = updated.email;
+            _emailController.text = updated.email;
+            _language = updated.language;
+            _currency = updated.currency;
+            _enableTodoList = updated.enableTodoList;
+            _birthday = updated.birthday.isNotEmpty ? DateTime.tryParse(updated.birthday) : null;
+          });
+        }
+        widget.onSettingsUpdated(updated);
+        if (showSuccessToast && mounted) {
+          _showSnack(_isJa ? 'アカウント情報を更新しました。' : 'Account info updated.');
+        }
+        return true;
+      } else {
+        _showSnack(
+          _extractFriendlyError(
+            response,
+            _isJa ? '設定の更新に失敗しました' : 'Failed to update settings',
+          ),
+          isError: true,
+        );
+        return false;
+      }
+    } catch (e) {
+      _showSnack(
+        _isJa ? 'サーバーに接続できませんでした: $e' : 'Could not reach server: $e',
+        isError: true,
+      );
+      return false;
+    }
+  }
+
+  Future<void> _saveAccountFields() async {
+    if (_isSavingAccount) return;
+    setState(() => _isSavingAccount = true);
+    final ok = await _autoSaveSettings(
+      usernameOverride: _usernameController.text,
+      emailOverride: _emailController.text,
+      showSuccessToast: true,
+    );
+    if (mounted) {
+      setState(() {
+        _isSavingAccount = false;
+        if (ok) _isEditingAccount = false;
+      });
+    }
+  }
+
   Future<void> _pickBirthday() async {
     final now = DateTime.now();
+    final prev = _birthday;
     final picked = await showDatePicker(
       context: context,
       initialDate: _birthday ?? DateTime(2000, 1, 1),
@@ -85,275 +239,46 @@ class _SettingsPageState extends State<SettingsPage> {
     );
     if (picked != null) {
       setState(() => _birthday = picked);
-    }
-  }
-
-  Future<void> _saveSettings() async {
-    if (_isSaving) return;
-    final emailText = _emailController.text.trim();
-    if (emailText.isNotEmpty && !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(emailText)) {
-      _showSnack(_isJa ? '有効なメールアドレスを入力してください。' : 'Please enter a valid email address.', isError: true);
-      return;
-    }
-
-    setState(() => _isSaving = true);
-    try {
-      final bdayStr = _birthday == null ? '' : _formatBirthday(_birthday);
-      final response = await http.put(
-        Uri.parse('${widget.backendBaseUrl}/api/auth/settings'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${widget.authToken}',
-        },
-        body: jsonEncode({
-          'email': emailText,
-          'birthday': bdayStr,
-          'currency': _currency,
-          'timezone': _timezone,
-          'language': _language,
-          'enableTodoList': _enableTodoList,
-          'enablePayroll': _enablePayroll,
-          'enableNotifications': _enableNotifications,
-          'setupComplete': true,
-        }),
-      );
-
-      final Map<String, dynamic> data = response.body.isNotEmpty
-          ? jsonDecode(response.body) as Map<String, dynamic>
-          : {};
-
-      if (response.statusCode == 200) {
-        final updated = UserAppSettings.fromJson(data);
-        await updated.saveToCache();
-        widget.onSettingsUpdated(updated);
-        if (mounted) {
-          _showSnack(_isJa ? '設定を保存しました。' : 'Settings saved.');
-        }
-      } else {
-        _showSnack(
-          data['error']?.toString() ?? (_isJa ? '保存に失敗しました。' : 'Failed to save settings.'),
-          isError: true,
-        );
+      final ok = await _autoSaveSettings(birthdayOverride: picked);
+      if (!ok && mounted) {
+        setState(() => _birthday = prev);
       }
-    } catch (_) {
-      _showSnack(_isJa ? '通信エラーが発生しました。' : 'Network error.', isError: true);
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
     }
   }
 
   Future<void> _showChangePasswordDialog() async {
-    final currentCtrl = TextEditingController();
-    final newCtrl = TextEditingController();
-    final confirmCtrl = TextEditingController();
-    bool obscure1 = true;
-    bool obscure2 = true;
-    bool submitting = false;
-    String? errText;
-
-    await showDialog<void>(
+    final changed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: Text(_isJa ? 'パスワードを変更' : 'Change Password'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: currentCtrl,
-                obscureText: obscure1,
-                decoration: InputDecoration(
-                  labelText: _isJa ? '現在のパスワード' : 'Current Password',
-                  suffixIcon: IconButton(
-                    icon: Icon(obscure1 ? CupertinoIcons.eye : CupertinoIcons.eye_slash, size: 18),
-                    onPressed: () => setDialogState(() => obscure1 = !obscure1),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: newCtrl,
-                obscureText: obscure2,
-                decoration: InputDecoration(
-                  labelText: _isJa ? '新しいパスワード（6文字以上）' : 'New Password (min 6 chars)',
-                  suffixIcon: IconButton(
-                    icon: Icon(obscure2 ? CupertinoIcons.eye : CupertinoIcons.eye_slash, size: 18),
-                    onPressed: () => setDialogState(() => obscure2 = !obscure2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: confirmCtrl,
-                obscureText: obscure2,
-                decoration: InputDecoration(
-                  labelText: _isJa ? '新しいパスワード（確認）' : 'Confirm New Password',
-                ),
-              ),
-              if (errText != null) ...[
-                const SizedBox(height: 10),
-                Text(errText!, style: const TextStyle(color: appleRed, fontSize: 13)),
-              ],
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: submitting ? null : () => Navigator.pop(ctx),
-              child: Text(_isJa ? 'キャンセル' : 'Cancel'),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: appleRed),
-              onPressed: submitting
-                  ? null
-                  : () async {
-                      if (newCtrl.text.length < 6) {
-                        setDialogState(() => errText = _isJa ? '6文字以上で入力してください。' : 'Minimum 6 characters required.');
-                        return;
-                      }
-                      if (newCtrl.text != confirmCtrl.text) {
-                        setDialogState(() => errText = _isJa ? '新しいパスワードが一致しません。' : 'New passwords do not match.');
-                        return;
-                      }
-                      setDialogState(() {
-                        submitting = true;
-                        errText = null;
-                      });
-                      try {
-                        final res = await http.post(
-                          Uri.parse('${widget.backendBaseUrl}/api/auth/change-password'),
-                          headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': 'Bearer ${widget.authToken}',
-                          },
-                          body: jsonEncode({
-                            'currentPassword': currentCtrl.text,
-                            'newPassword': newCtrl.text,
-                          }),
-                        );
-                        final body = res.body.isNotEmpty ? jsonDecode(res.body) as Map<String, dynamic> : <String, dynamic>{};
-                        if (res.statusCode == 200) {
-                          if (ctx.mounted) Navigator.pop(ctx);
-                          if (mounted) {
-                            _showSnack(_isJa ? 'パスワードを変更しました。' : 'Password changed successfully.');
-                          }
-                        } else {
-                          setDialogState(() => errText = body['error']?.toString() ?? 'Failed to change password');
-                        }
-                      } catch (_) {
-                        setDialogState(() => errText = _isJa ? '通信エラーが発生しました。' : 'Network error.');
-                      } finally {
-                        setDialogState(() => submitting = false);
-                      }
-                    },
-              child: Text(_isJa ? '変更する' : 'Update'),
-            ),
-          ],
-        ),
+      builder: (_) => _ChangePasswordDialog(
+        backendBaseUrl: widget.backendBaseUrl,
+        authToken: widget.authToken,
+        isJa: _isJa,
       ),
     );
-    currentCtrl.dispose();
-    newCtrl.dispose();
-    confirmCtrl.dispose();
+    if (changed == true && mounted) {
+      _showSnack(_isJa ? 'パスワードを変更しました。' : 'Password changed successfully.');
+    }
   }
 
   Future<void> _showDeleteAccountDialog() async {
-    final passwordCtrl = TextEditingController();
-    bool obscure = true;
-    bool deleting = false;
-    String? errText;
-
-    await showDialog<void>(
+    final deleted = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: Text(
-            _isJa ? 'アカウントを削除' : 'Delete Account',
-            style: const TextStyle(color: appleRed, fontWeight: FontWeight.w700),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _isJa
-                    ? 'アカウントとすべての予定データが完全に削除され、元に戻せません。確認のためパスワードを入力してください。'
-                    : 'Your account and all calendar events will be permanently deleted. Enter your password to confirm.',
-                style: const TextStyle(fontSize: 13),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: passwordCtrl,
-                obscureText: obscure,
-                decoration: InputDecoration(
-                  labelText: _isJa ? 'パスワード' : 'Password',
-                  suffixIcon: IconButton(
-                    icon: Icon(obscure ? CupertinoIcons.eye : CupertinoIcons.eye_slash, size: 18),
-                    onPressed: () => setDialogState(() => obscure = !obscure),
-                  ),
-                ),
-              ),
-              if (errText != null) ...[
-                const SizedBox(height: 10),
-                Text(errText!, style: const TextStyle(color: appleRed, fontSize: 13)),
-              ],
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: deleting ? null : () => Navigator.pop(ctx),
-              child: Text(_isJa ? 'キャンセル' : 'Cancel'),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: appleRed),
-              onPressed: deleting
-                  ? null
-                  : () async {
-                      if (passwordCtrl.text.isEmpty) {
-                        setDialogState(() => errText = _isJa ? 'パスワードを入力してください。' : 'Please enter your password.');
-                        return;
-                      }
-                      setDialogState(() {
-                        deleting = true;
-                        errText = null;
-                      });
-                      try {
-                        final res = await http.delete(
-                          Uri.parse('${widget.backendBaseUrl}/api/auth/account'),
-                          headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': 'Bearer ${widget.authToken}',
-                          },
-                          body: jsonEncode({'password': passwordCtrl.text}),
-                        );
-                        final body = res.body.isNotEmpty ? jsonDecode(res.body) as Map<String, dynamic> : <String, dynamic>{};
-                        if (res.statusCode == 200) {
-                          final prefs = await SharedPreferences.getInstance();
-                          await prefs.clear();
-                          if (ctx.mounted) Navigator.pop(ctx);
-                          if (mounted) {
-                            Navigator.of(context).popUntil((route) => route.isFirst);
-                            widget.onLogout();
-                          }
-                        } else {
-                          setDialogState(() => errText = body['error']?.toString() ?? 'Failed to delete account');
-                        }
-                      } catch (_) {
-                        setDialogState(() => errText = _isJa ? '通信エラーが発生しました。' : 'Network error.');
-                      } finally {
-                        setDialogState(() => deleting = false);
-                      }
-                    },
-              child: Text(_isJa ? '完全に削除' : 'Delete Forever'),
-            ),
-          ],
-        ),
+      builder: (_) => _DeleteAccountDialog(
+        backendBaseUrl: widget.backendBaseUrl,
+        authToken: widget.authToken,
+        isJa: _isJa,
       ),
     );
-    passwordCtrl.dispose();
+    if (deleted == true && mounted) {
+      widget.onLogout();
+    }
   }
 
   void _showSnack(String msg, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.clearSnackBars();
+    messenger?.showSnackBar(
       SnackBar(
         content: Text(msg),
         backgroundColor: isError ? appleRed : const Color(0xFF34C759),
@@ -376,6 +301,24 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  Widget _buildComingSoonBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.amber.shade100,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        _isJa ? '順次追加予定' : 'Coming Soon',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: Colors.amber.shade900,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -388,17 +331,6 @@ class _SettingsPageState extends State<SettingsPage> {
           style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w700),
         ),
         iconTheme: const IconThemeData(color: appleRed),
-        actions: [
-          TextButton(
-            onPressed: _isSaving ? null : _saveSettings,
-            child: _isSaving
-                ? const CupertinoActivityIndicator()
-                : Text(
-                    _isJa ? '保存' : 'Save',
-                    style: const TextStyle(color: appleRed, fontSize: 16, fontWeight: FontWeight.w600),
-                  ),
-          ),
-        ],
       ),
       body: Center(
         child: ConstrainedBox(
@@ -406,8 +338,80 @@ class _SettingsPageState extends State<SettingsPage> {
           child: ListView(
             padding: const EdgeInsets.only(bottom: 40),
             children: [
-              // ACCOUNT & PROFILE
-              _sectionHeader(_isJa ? 'アカウント・プロフィール' : 'Account & Profile'),
+              // ACCOUNT & PROFILE (Single shared Edit button for Username & Email)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      (_isJa ? 'アカウント・プロフィール' : 'Account & Profile').toUpperCase(),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: appleSecondaryLabel,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                    if (!_isEditingAccount)
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: () => setState(() => _isEditingAccount = true),
+                        icon: const Icon(CupertinoIcons.pencil, size: 14, color: appleRed),
+                        label: Text(
+                          _isJa ? '編集' : 'Edit',
+                          style: const TextStyle(color: appleRed, fontSize: 13),
+                        ),
+                      )
+                    else
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextButton(
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            onPressed: _isSavingAccount
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _usernameController.text = _savedUsername;
+                                      _emailController.text = _savedEmail;
+                                      _isEditingAccount = false;
+                                    });
+                                  },
+                            child: Text(
+                              _isJa ? '取消' : 'Cancel',
+                              style: const TextStyle(color: appleSecondaryLabel, fontSize: 13),
+                            ),
+                          ),
+                          TextButton(
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            onPressed: _isSavingAccount ? null : _saveAccountFields,
+                            child: Text(
+                              _isJa ? '保存' : 'Save',
+                              style: const TextStyle(
+                                color: appleRed,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
               Container(
                 margin: const EdgeInsets.symmetric(horizontal: 16),
                 decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
@@ -415,28 +419,42 @@ class _SettingsPageState extends State<SettingsPage> {
                   children: [
                     ListTile(
                       leading: const Icon(CupertinoIcons.person_circle, color: appleRed),
-                      title: Text(_isJa ? 'ユーザー名' : 'Username'),
-                      trailing: Text(widget.username, style: const TextStyle(color: appleSecondaryLabel)),
+                      title: _isEditingAccount
+                          ? TextField(
+                              controller: _usernameController,
+                              autofocus: true,
+                              decoration: InputDecoration(
+                                labelText: _isJa ? 'ユーザー名' : 'Username',
+                                isDense: true,
+                                border: InputBorder.none,
+                              ),
+                            )
+                          : Text(_isJa ? 'ユーザー名' : 'Username'),
+                      subtitle: _isEditingAccount
+                          ? null
+                          : Text(_savedUsername, style: const TextStyle(color: appleSecondaryLabel)),
                     ),
                     const Divider(height: 1, indent: 54, color: appleHairline),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                      child: Row(
-                        children: [
-                          const Icon(CupertinoIcons.mail, color: appleRed, size: 22),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: TextField(
+                    ListTile(
+                      leading: const Icon(CupertinoIcons.mail, color: appleRed),
+                      title: _isEditingAccount
+                          ? TextField(
                               controller: _emailController,
                               keyboardType: TextInputType.emailAddress,
                               decoration: InputDecoration(
                                 labelText: _isJa ? 'メールアドレス' : 'Email Address',
+                                hintText: 'name@example.com',
+                                isDense: true,
                                 border: InputBorder.none,
                               ),
+                            )
+                          : Text(_isJa ? 'メールアドレス' : 'Email Address'),
+                      subtitle: _isEditingAccount
+                          ? null
+                          : Text(
+                              _savedEmail.isEmpty ? (_isJa ? '未設定' : 'Not set') : _savedEmail,
+                              style: const TextStyle(color: appleSecondaryLabel),
                             ),
-                          ),
-                        ],
-                      ),
                     ),
                     const Divider(height: 1, indent: 54, color: appleHairline),
                     ListTile(
@@ -452,7 +470,14 @@ class _SettingsPageState extends State<SettingsPage> {
                           if (_birthday != null)
                             IconButton(
                               icon: const Icon(CupertinoIcons.clear_circled_solid, size: 18, color: appleSecondaryLabel),
-                              onPressed: () => setState(() => _birthday = null),
+                              onPressed: () async {
+                                final prev = _birthday;
+                                setState(() => _birthday = null);
+                                final ok = await _autoSaveSettings(clearBirthday: true);
+                                if (!ok && mounted) {
+                                  setState(() => _birthday = prev);
+                                }
+                              },
                             ),
                           const Icon(CupertinoIcons.chevron_forward, size: 16, color: appleSecondaryLabel),
                         ],
@@ -478,10 +503,17 @@ class _SettingsPageState extends State<SettingsPage> {
                           value: _language,
                           items: const [
                             DropdownMenuItem(value: 'en', child: Text('English')),
-                            DropdownMenuItem(value: 'ja', child: Text('日本語')),
+                            DropdownMenuItem(value: 'ja', child: Text('日本語 (Japanese)')),
                           ],
-                          onChanged: (v) {
-                            if (v != null) setState(() => _language = v);
+                          onChanged: (v) async {
+                            if (v != null && v != _language) {
+                              final prev = _language;
+                              setState(() => _language = v);
+                              final ok = await _autoSaveSettings(languageOverride: v);
+                              if (!ok && mounted) {
+                                setState(() => _language = prev);
+                              }
+                            }
                           },
                         ),
                       ),
@@ -490,42 +522,72 @@ class _SettingsPageState extends State<SettingsPage> {
                     ListTile(
                       leading: const Icon(CupertinoIcons.money_dollar_circle, color: appleRed),
                       title: Text(_isJa ? '通貨' : 'Currency'),
-                      trailing: CupertinoSlidingSegmentedControl<String>(
-                        groupValue: _currency,
-                        children: const {
-                          'USD': Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                            child: Text('\$ (USD)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                          ),
-                          'JPY': Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                            child: Text('¥ (JPY)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                          ),
-                        },
-                        onValueChanged: (v) {
-                          if (v != null) setState(() => _currency = v);
-                        },
+                      trailing: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _currency,
+                          items: const [
+                            DropdownMenuItem(value: 'USD', child: Text('\$ (USD)')),
+                            DropdownMenuItem(value: 'JPY', child: Text('¥ (JPY)')),
+                          ],
+                          onChanged: (v) async {
+                            if (v != null && v != _currency) {
+                              final prev = _currency;
+                              setState(() => _currency = v);
+                              final ok = await _autoSaveSettings(currencyOverride: v);
+                              if (!ok && mounted) {
+                                setState(() => _currency = prev);
+                              }
+                            }
+                          },
+                        ),
                       ),
-                    ),
-                    const Divider(height: 1, indent: 54, color: appleHairline),
-                    SwitchListTile.adaptive(
-                      secondary: const Icon(CupertinoIcons.bell, color: appleRed),
-                      title: Text(_isJa ? '通知' : 'Notifications'),
-                      subtitle: Text(
-                        _isJa ? '予定のリマインダー通知を有効にする' : 'Enable event reminder notifications',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                      activeColor: appleRed,
-                      value: _enableNotifications,
-                      onChanged: (v) => setState(() => _enableNotifications = v),
                     ),
                     const Divider(height: 1, indent: 54, color: appleHairline),
                     SwitchListTile.adaptive(
                       secondary: const Icon(CupertinoIcons.checkmark_circle, color: appleRed),
                       title: Text(_isJa ? 'To-Doリスト' : 'To-Do List'),
-                      activeColor: appleRed,
+                      activeThumbColor: appleRed,
                       value: _enableTodoList,
-                      onChanged: (v) => setState(() => _enableTodoList = v),
+                      onChanged: (v) async {
+                        final prev = _enableTodoList;
+                        setState(() => _enableTodoList = v);
+                        final ok = await _autoSaveSettings(enableTodoListOverride: v);
+                        if (!ok && mounted) {
+                          setState(() => _enableTodoList = prev);
+                        }
+                      },
+                    ),
+                    const Divider(height: 1, indent: 54, color: appleHairline),
+                    ListTile(
+                      leading: const Icon(CupertinoIcons.bell, color: appleSecondaryLabel),
+                      title: Wrap(
+                        spacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            _isJa ? '通知' : 'Notifications',
+                            style: const TextStyle(color: appleSecondaryLabel),
+                          ),
+                          _buildComingSoonBadge(),
+                        ],
+                      ),
+                      trailing: const CupertinoSwitch(value: false, onChanged: null),
+                    ),
+                    const Divider(height: 1, indent: 54, color: appleHairline),
+                    ListTile(
+                      leading: const Icon(CupertinoIcons.money_dollar_circle, color: appleSecondaryLabel),
+                      title: Wrap(
+                        spacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            _isJa ? '給与計算' : 'Payroll',
+                            style: const TextStyle(color: appleSecondaryLabel),
+                          ),
+                          _buildComingSoonBadge(),
+                        ],
+                      ),
+                      trailing: const CupertinoSwitch(value: false, onChanged: null),
                     ),
                   ],
                 ),
@@ -561,6 +623,312 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ChangePasswordDialog extends StatefulWidget {
+  final String backendBaseUrl;
+  final String authToken;
+  final bool isJa;
+
+  const _ChangePasswordDialog({
+    required this.backendBaseUrl,
+    required this.authToken,
+    required this.isJa,
+  });
+
+  @override
+  State<_ChangePasswordDialog> createState() => _ChangePasswordDialogState();
+}
+
+class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
+  final TextEditingController _currentCtrl = TextEditingController();
+  final TextEditingController _newCtrl = TextEditingController();
+  final TextEditingController _confirmCtrl = TextEditingController();
+  bool _obscure1 = true;
+  bool _obscure2 = true;
+  bool _obscure3 = true;
+  bool _submitting = false;
+  String? _errText;
+
+  @override
+  void dispose() {
+    _currentCtrl.dispose();
+    _newCtrl.dispose();
+    _confirmCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_submitting) return;
+    if (_newCtrl.text.length < 6) {
+      setState(() => _errText = widget.isJa ? '6文字以上で入力してください。' : 'Minimum 6 characters required.');
+      return;
+    }
+    if (_newCtrl.text != _confirmCtrl.text) {
+      setState(() => _errText = widget.isJa ? '新しいパスワードが一致しません。' : 'New passwords do not match.');
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _errText = null;
+    });
+
+    try {
+      final res = await http.post(
+        Uri.parse('${widget.backendBaseUrl}/api/auth/change-password'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${widget.authToken}',
+        },
+        body: jsonEncode({
+          'currentPassword': _currentCtrl.text,
+          'newPassword': _newCtrl.text,
+        }),
+      );
+
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        Navigator.of(context).pop(true);
+        return;
+      }
+
+      if (res.statusCode == 404) {
+        setState(() {
+          _errText = widget.isJa
+              ? 'APIが見つかりません (404)。ローカルバックエンドに接続するか、Renderへデプロイしてください。'
+              : 'Password endpoint not found (404). Connect to local backend or deploy updated backend.';
+          _submitting = false;
+        });
+        return;
+      }
+
+      String message = widget.isJa ? 'パスワードの変更に失敗しました。' : 'Failed to change password.';
+      if (res.body.isNotEmpty) {
+        final body = jsonDecode(res.body);
+        if (body is Map<String, dynamic>) {
+          final err = body['error']?.toString();
+          if (err != null && err.isNotEmpty && err != 'Not Found') {
+            message = err;
+          }
+        }
+      }
+      setState(() {
+        _errText = message;
+        _submitting = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errText = widget.isJa ? 'サーバーに接続できませんでした: $e' : 'Network error: $e';
+          _submitting = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.isJa ? 'パスワードを変更' : 'Change Password'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _currentCtrl,
+            obscureText: _obscure1,
+            decoration: InputDecoration(
+              labelText: widget.isJa ? '現在のパスワード' : 'Current Password',
+              suffixIcon: IconButton(
+                icon: Icon(_obscure1 ? CupertinoIcons.eye : CupertinoIcons.eye_slash, size: 18),
+                onPressed: () => setState(() => _obscure1 = !_obscure1),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _newCtrl,
+            obscureText: _obscure2,
+            decoration: InputDecoration(
+              labelText: widget.isJa ? '新しいパスワード(6文字以上)' : 'New Password (min 6 chars)',
+              suffixIcon: IconButton(
+                icon: Icon(_obscure2 ? CupertinoIcons.eye : CupertinoIcons.eye_slash, size: 18),
+                onPressed: () => setState(() => _obscure2 = !_obscure2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _confirmCtrl,
+            obscureText: _obscure3,
+            decoration: InputDecoration(
+              labelText: widget.isJa ? '新しいパスワード（確認）' : 'Confirm New Password',
+              suffixIcon: IconButton(
+                icon: Icon(_obscure3 ? CupertinoIcons.eye : CupertinoIcons.eye_slash, size: 18),
+                onPressed: () => setState(() => _obscure3 = !_obscure3),
+              ),
+            ),
+          ),
+          if (_errText != null) ...[
+            const SizedBox(height: 10),
+            Text(_errText!, style: const TextStyle(color: Color(0xFFFF3B30), fontSize: 13)),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _submitting ? null : () => Navigator.of(context).pop(false),
+          child: Text(widget.isJa ? 'キャンセル' : 'Cancel'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFF3B30)),
+          onPressed: _submitting ? null : _submit,
+          child: Text(widget.isJa ? '変更する' : 'Update'),
+        ),
+      ],
+    );
+  }
+}
+
+class _DeleteAccountDialog extends StatefulWidget {
+  final String backendBaseUrl;
+  final String authToken;
+  final bool isJa;
+
+  const _DeleteAccountDialog({
+    required this.backendBaseUrl,
+    required this.authToken,
+    required this.isJa,
+  });
+
+  @override
+  State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
+}
+
+class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
+  final TextEditingController _passwordCtrl = TextEditingController();
+  bool _obscure = true;
+  bool _deleting = false;
+  String? _errText;
+
+  @override
+  void dispose() {
+    _passwordCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_deleting) return;
+    if (_passwordCtrl.text.isEmpty) {
+      setState(() => _errText = widget.isJa ? 'パスワードを入力してください。' : 'Please enter your password.');
+      return;
+    }
+
+    setState(() {
+      _deleting = true;
+      _errText = null;
+    });
+
+    try {
+      final res = await http.delete(
+        Uri.parse('${widget.backendBaseUrl}/api/auth/account'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${widget.authToken}',
+        },
+        body: jsonEncode({'password': _passwordCtrl.text}),
+      );
+
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.clear();
+        if (mounted) Navigator.of(context).pop(true);
+        return;
+      }
+
+      if (res.statusCode == 404) {
+        setState(() {
+          _errText = widget.isJa
+              ? 'APIが見つかりません (404)。ローカルバックエンドに接続するか、Renderへデプロイしてください。'
+              : 'Account deletion endpoint not found (404). Connect to local backend or deploy updated backend.';
+          _deleting = false;
+        });
+        return;
+      }
+
+      String message = widget.isJa ? 'アカウントの削除に失敗しました。' : 'Failed to delete account.';
+      if (res.body.isNotEmpty) {
+        final body = jsonDecode(res.body);
+        if (body is Map<String, dynamic>) {
+          final err = body['error']?.toString();
+          if (err != null && err.isNotEmpty && err != 'Not Found') {
+            message = err;
+          }
+        }
+      }
+      setState(() {
+        _errText = message;
+        _deleting = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errText = widget.isJa ? 'サーバーに接続できませんでした: $e' : 'Network error: $e';
+          _deleting = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(
+        widget.isJa ? 'アカウントを削除' : 'Delete Account',
+        style: const TextStyle(color: Color(0xFFFF3B30), fontWeight: FontWeight.w700),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            widget.isJa
+                ? 'アカウントとすべての予定データが完全に削除され、元に戻せません。確認のためパスワードを入力してください。'
+                : 'Your account and all calendar events will be permanently deleted. Enter your password to confirm.',
+            style: const TextStyle(fontSize: 13),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _passwordCtrl,
+            obscureText: _obscure,
+            decoration: InputDecoration(
+              labelText: widget.isJa ? 'パスワード' : 'Password',
+              suffixIcon: IconButton(
+                icon: Icon(_obscure ? CupertinoIcons.eye : CupertinoIcons.eye_slash, size: 18),
+                onPressed: () => setState(() => _obscure = !_obscure),
+              ),
+            ),
+          ),
+          if (_errText != null) ...[
+            const SizedBox(height: 10),
+            Text(_errText!, style: const TextStyle(color: Color(0xFFFF3B30), fontSize: 13)),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _deleting ? null : () => Navigator.of(context).pop(false),
+          child: Text(widget.isJa ? 'キャンセル' : 'Cancel'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFF3B30)),
+          onPressed: _deleting ? null : _submit,
+          child: Text(widget.isJa ? '完全に削除' : 'Delete Forever'),
+        ),
+      ],
     );
   }
 }

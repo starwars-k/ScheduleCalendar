@@ -33,13 +33,13 @@ public class User {
     @Column(nullable = false, columnDefinition = "boolean default false")
     private Boolean enablePayroll = false;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "boolean default false")
     private boolean enableNotifications = true;
 
     @Column(length = 10)
     private String birthday;
 
-    @Column(nullable = false, length = 8)
+    @Column(nullable = false, length = 8, columnDefinition = "varchar(8) default 'USD'")
     private String currency = "USD";
 
     @Column(nullable = false, columnDefinition = "boolean default false")

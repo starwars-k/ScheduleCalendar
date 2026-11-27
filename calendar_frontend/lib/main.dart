@@ -16,8 +16,10 @@ import 'dart:convert';
 import 'dart:async';
 import 'dart:ui';
 
-const String kBackendBaseUrl = 'https://calendar-backend-qhny.onrender.com';
-//const String kBackendBaseUrl = 'http://localhost:8080';
+const String kBackendBaseUrl = String.fromEnvironment(
+  'BACKEND_BASE_URL',
+  defaultValue: 'https://calendar-backend-qhny.onrender.com',
+);
 final ValueNotifier<bool> globalLoading = ValueNotifier<bool>(false);
 
 void main() {

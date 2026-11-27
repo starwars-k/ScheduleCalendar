@@ -288,6 +288,7 @@ public class AuthService {
     @Transactional
     public User updateUserSettings(
             Long userId,
+            String username,
             String email,
             String birthday,
             String currency,
@@ -299,44 +300,53 @@ public class AuthService {
             Boolean setupComplete
     ) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
+        if (username != null && !username.isBlank()) {
+        String normalizedUser = username.trim().toLowerCase();
+        if (normalizedUser.length() < 3) {
+            throw new IllegalArgumentException("Username must be at least 3 characters");
+        }
+        Optional<User> existingUser = userRepository.findByUsername(normalizedUser);
+        if (existingUser.isPresent() && !existingUser.get().getId().equals(userId)) {
+            throw new IllegalArgumentException("Username is already taken");
+        }
+        user.setUsername(normalizedUser);
+        }
         if (email != null) {
-            String trimmed = email.trim().toLowerCase();
-            if (trimmed.isEmpty()) {
+            String trimmedEmail = email.trim().toLowerCase();
+            if (trimmedEmail.isEmpty()) {
                 user.setEmail(null);
             } else {
-                if (!trimmed.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+                if (!trimmedEmail.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
                     throw new IllegalArgumentException("Please enter a valid email address");
                 }
-                Optional<User> existing = userRepository.findByEmail(trimmed);
-                if (existing.isPresent() && !existing.get().getId().equals(userId)) {
-                    throw new IllegalArgumentException("Email is already in use by another account");
+                Optional<User> existingEmail = userRepository.findByEmail(trimmedEmail);
+                if (existingEmail.isPresent() && !existingEmail.get().getId().equals(userId)) {
+                    throw new IllegalArgumentException("Email is already registered");
                 }
-                user.setEmail(trimmed);
+                user.setEmail(trimmedEmail);
             }
         }
-
         if (birthday != null) {
-            String trimmedBday = birthday.trim();
-            if (trimmedBday.isEmpty()) {
-                user.setBirthday(null);
-            } else {
-                if (!trimmedBday.matches("^\\d{4}-\\d{2}-\\d{2}$")) {
-                    throw new IllegalArgumentException("Birthday must be YYYY-MM-DD");
-                }
-                user.setBirthday(trimmedBday);
-            }
+            user.setBirthday(birthday.trim());
         }
-
-        if (currency != null && (currency.equals("USD") || currency.equals("JPY"))) {
-            user.setCurrency(currency);
+        if (currency != null && !currency.isBlank()) {
+            String normalizedCurrency = currency.trim().toUpperCase();
+            if (!normalizedCurrency.equals("USD") && !normalizedCurrency.equals("JPY")) {
+                throw new IllegalArgumentException("Unsupported currency: " + currency);
+            }
+            user.setCurrency(normalizedCurrency);
         }
         if (timezone != null && !timezone.isBlank()) {
             user.setTimezone(timezone.trim());
         }
-        if (language != null && (language.equals("en") || language.equals("ja"))) {
-            user.setLanguage(language);
+        if (language != null && !language.isBlank()) {
+            String normalizedLang = language.trim().toLowerCase();
+            if (!normalizedLang.equals("en") && !normalizedLang.equals("ja")) {
+                throw new IllegalArgumentException("Unsupported language: " + language);
+            }
+            user.setLanguage(normalizedLang);
         }
         if (enableTodoList != null) {
             user.setEnableTodoList(enableTodoList);
@@ -350,7 +360,6 @@ public class AuthService {
         if (setupComplete != null) {
             user.setSetupComplete(setupComplete);
         }
-
         return userRepository.save(user);
     }
 

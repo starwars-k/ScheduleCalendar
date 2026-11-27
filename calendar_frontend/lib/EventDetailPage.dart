@@ -1,6 +1,9 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+
 import 'package:calendar_frontend/event_model.dart';
+import 'package:calendar_frontend/main.dart';
+
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:async';
@@ -36,8 +39,7 @@ class EventDetailPage extends StatefulWidget {
 
 class _EventDetailPageState extends State<EventDetailPage> {
   late String _eventType;
-  static const String _baseUrl = 'https://calendar-backend-qhny.onrender.com';
-  //static const String _baseUrl = 'http://localhost:8080';
+  static const String _baseUrl = kBackendBaseUrl;
 
   static const Color _appleRed = Color(0xFFFF3B30);
   static const Color _appleGroupedBg = Color(0xFFF2F2F7);
