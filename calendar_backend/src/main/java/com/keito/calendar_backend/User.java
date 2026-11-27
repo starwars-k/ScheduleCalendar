@@ -33,6 +33,15 @@ public class User {
     @Column(nullable = false, columnDefinition = "boolean default false")
     private Boolean enablePayroll = false;
 
+    @Column(nullable = false)
+    private boolean enableNotifications = true;
+
+    @Column(length = 10)
+    private String birthday;
+
+    @Column(nullable = false, length = 8)
+    private String currency = "USD";
+
     @Column(nullable = false, columnDefinition = "boolean default false")
     private Boolean setupComplete = false;
 
@@ -81,6 +90,15 @@ public class User {
 
     public Boolean getEnablePayroll() {return enablePayroll;}
     public void setEnablePayroll(Boolean enablePayroll) {this.enablePayroll = enablePayroll;}
+
+    public boolean isEnableNotifications() {return enableNotifications;}
+    public void setEnableNotifications(boolean enableNotifications) {this.enableNotifications = enableNotifications;}
+
+    public String getBirthday() {return birthday;}
+    public void setBirthday(String birthday) {this.birthday = birthday;}
+
+    public String getCurrency() {return currency;}
+    public void setCurrency(String currency) {this.currency = currency;}
 
     public boolean isSetupComplete() {return Boolean.TRUE.equals(setupComplete);}
     public Boolean getSetupComplete() {return setupComplete;}

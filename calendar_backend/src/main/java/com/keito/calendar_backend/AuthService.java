@@ -280,4 +280,103 @@ public class AuthService {
             throw new RuntimeException("Error signing data", e);
         }
     }
+
+    public Optional<User> findUserById(Long userId) {
+        return userRepository.findById(userId);
+    }
+
+    @Transactional
+    public User updateUserSettings(
+            Long userId,
+            String email,
+            String birthday,
+            String currency,
+            String timezone,
+            String language,
+            Boolean enableTodoList,
+            Boolean enablePayroll,
+            Boolean enableNotifications,
+            Boolean setupComplete
+    ) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        if (email != null) {
+            String trimmed = email.trim().toLowerCase();
+            if (trimmed.isEmpty()) {
+                user.setEmail(null);
+            } else {
+                if (!trimmed.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+                    throw new IllegalArgumentException("Please enter a valid email address");
+                }
+                Optional<User> existing = userRepository.findByEmail(trimmed);
+                if (existing.isPresent() && !existing.get().getId().equals(userId)) {
+                    throw new IllegalArgumentException("Email is already in use by another account");
+                }
+                user.setEmail(trimmed);
+            }
+        }
+
+        if (birthday != null) {
+            String trimmedBday = birthday.trim();
+            if (trimmedBday.isEmpty()) {
+                user.setBirthday(null);
+            } else {
+                if (!trimmedBday.matches("^\\d{4}-\\d{2}-\\d{2}$")) {
+                    throw new IllegalArgumentException("Birthday must be YYYY-MM-DD");
+                }
+                user.setBirthday(trimmedBday);
+            }
+        }
+
+        if (currency != null && (currency.equals("USD") || currency.equals("JPY"))) {
+            user.setCurrency(currency);
+        }
+        if (timezone != null && !timezone.isBlank()) {
+            user.setTimezone(timezone.trim());
+        }
+        if (language != null && (language.equals("en") || language.equals("ja"))) {
+            user.setLanguage(language);
+        }
+        if (enableTodoList != null) {
+            user.setEnableTodoList(enableTodoList);
+        }
+        if (enablePayroll != null) {
+            user.setEnablePayroll(enablePayroll);
+        }
+        if (enableNotifications != null) {
+            user.setEnableNotifications(enableNotifications);
+        }
+        if (setupComplete != null) {
+            user.setSetupComplete(setupComplete);
+        }
+
+        return userRepository.save(user);
+    }
+
+    @Transactional
+    public boolean changePassword(Long userId, String currentPassword, String newPassword) {
+        Optional<User> userOpt = userRepository.findById(userId);
+        if (userOpt.isEmpty()) return false;
+        User user = userOpt.get();
+        if (!verifyPassword(currentPassword, user.getPasswordHash())) {
+            return false;
+        }
+        user.setPasswordHash(hashPassword(newPassword));
+        userRepository.save(user);
+        return true;
+    }
+
+    @Transactional
+    public boolean deleteAccount(Long userId, String password) {
+        Optional<User> userOpt = userRepository.findById(userId);
+        if (userOpt.isEmpty()) return false;
+        User user = userOpt.get();
+        if (!verifyPassword(password, user.getPasswordHash())) {
+            return false;
+        }
+        eventRepository.deleteByUserId(userId);
+        userRepository.delete(user);
+        return true;
+    }
 }

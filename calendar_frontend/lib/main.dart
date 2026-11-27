@@ -1415,7 +1415,12 @@ class _CalendarPageState extends State<CalendarPage> {
       ),
     );
     if (confirmed == true) {
-      await widget.onLogout();
+      final authState = context.findAncestorStateOfType<_AuthGatePageState>();
+      if (authState != null) {
+        await authState._logout();
+      } else {
+        await widget.onLogout();
+      }
     }
   }
 
@@ -2384,10 +2389,15 @@ class _CalendarPageState extends State<CalendarPage> {
                     ? SettingsPage(
                         backendBaseUrl: kBackendBaseUrl,
                         authToken: widget.authToken,
-                        currentSettings: _activeSettings,
-                        onSettingsChanged: (updated) async {
+                        username: widget.username,
+                        initialSettings: _activeSettings,
+                        onSettingsUpdated: (updated) {
                           setState(() {
                             _activeSettings = updated;
+                            if (kSupportedTimezones.contains(updated.timezone)) {
+                              _startTimezone = updated.timezone;
+                              _endTimezone = updated.timezone;
+                            }
                             final updatedTabKeys = [
                               'calendar',
                               if (updated.enableTodoList) 'todo',

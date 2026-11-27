@@ -18,15 +18,23 @@ const List<String> kSupportedTimezones = [
 class UserAppSettings {
   final String timezone;
   final String language; // 'en' or 'ja'
+  final String email;
+  final String birthday;
+  final String currency;
   final bool enableTodoList;
   final bool enablePayroll;
+  final bool enableNotifications;
   final bool setupComplete;
 
   const UserAppSettings({
     this.timezone = 'America/Chicago',
     this.language = 'en',
+    this.email = '',
+    this.birthday = '',
+    this.currency = 'USD',
     this.enableTodoList = false,
     this.enablePayroll = false,
+    this.enableNotifications = true,
     this.setupComplete = false,
   });
 
@@ -34,10 +42,14 @@ class UserAppSettings {
     return UserAppSettings(
       timezone: json['timezone']?.toString() ?? 'America/Chicago',
       language: json['language']?.toString() ?? 'en',
+      email: (json['email'] as String?) ?? '',
+      birthday: (json['birthday'] as String?) ?? '',
+      currency: (json['currency'] as String?)?.isNotEmpty == true ? json['currency'] as String : 'USD',
       enableTodoList: json['enableTodoList'] is bool
           ? json['enableTodoList'] as bool
           : false,
       enablePayroll: false,
+      enableNotifications: json['enableNotifications'] as bool? ?? true,
       setupComplete: json['setupComplete'] is bool
         ? json['setupComplete'] as bool
         : false,
@@ -47,8 +59,12 @@ class UserAppSettings {
   Map<String, dynamic> toJson() => {
     'timezone': timezone,
     'language': language,
+    'email': email,
+    'birthday': birthday,
+    'currency': currency,
     'enableTodoList': enableTodoList,
     'enablePayroll': enablePayroll,
+    'enableNotifications': enableNotifications,
     'setupComplete': setupComplete,
   };
   
