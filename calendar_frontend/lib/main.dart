@@ -1100,6 +1100,37 @@ class _CalendarPageState extends State<CalendarPage> {
     }
   }
 
+  Future<void> _confirmAndLogout() async {
+    final bool isJapanese = _activeSettings.language == 'ja';
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(isJapanese ? 'ログアウト' : 'Log Out'),
+        content: Text(
+          isJapanese
+              ? 'ログアウトしてもよろしいですか？'
+              : 'Are you sure you want to log out?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(isJapanese ? 'キャンセル' : 'Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              isJapanese ? 'ログアウト' : 'Log Out',
+              style: const TextStyle(color: Colors.redAccent),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await widget.onLogout();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     String localQuery = '';
@@ -1458,7 +1489,7 @@ class _CalendarPageState extends State<CalendarPage> {
             icon: const Icon(Icons.logout),
             tooltip: 'Logout',
             onPressed: () async {
-              await widget.onLogout();
+              await _confirmAndLogout();
             },
           ),
         ],
@@ -1485,7 +1516,7 @@ class _CalendarPageState extends State<CalendarPage> {
                   }
                 });
               },
-              onLogout: widget.onLogout,
+              onLogout: _confirmAndLogout,
             )
           else if (activeTab == 'todo')
             TodoListPage(
