@@ -305,578 +305,818 @@ class _CalendarPageState extends State<CalendarPage> {
     } else {
       _repeatEndDate = initialDate.add(const Duration(days: 1));
     }
-    final ScrollController modalScrollController = ScrollController();
+    final bool isJapanese = _activeSettings.language == 'ja';
+    String? activePicker; // 'startDate', 'startTime', 'startTz', 'endDate', 'endTime', 'endTz', 'repeatEnd'
+    String repeatDisplayLabel(String value) {
+      if (isJapanese) {
+        switch (value) {
+          case 'Daily':
+            return '毎日';
+          case 'Weekly':
+            return '毎週';
+          case 'Biweekly':
+            return '2週間ごと';
+          case 'Monthly':
+            return '毎月';
+          case 'Yearly':
+            return '毎年';
+          case 'None':
+          default:
+            return 'しない';
+        }
+      }
+      switch (value) {
+        case 'Daily':
+          return 'Every Day';
+        case 'Weekly':
+          return 'Every Week';
+        case 'Biweekly':
+          return 'Every 2 Weeks';
+        case 'Monthly':
+          return 'Every Month';
+        case 'Yearly':
+          return 'Every Year';
+        case 'None':
+        default:
+          return 'Never';
+      }
+    }
+
     return await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: false,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20.0)),
-      ),
+      backgroundColor: Colors.transparent,
+      constraints: const BoxConstraints(maxWidth: 600),
       builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-          ),
-          child: SizedBox(
-            height: MediaQuery.of(context).size.height * 0.95,
-            child: Scaffold(
-              backgroundColor: Colors.transparent,
-              appBar: AppBar(
-                title: Text(isEditing ? "Edit Event" : "Add New Event"),
-                automaticallyImplyLeading: false,
-                backgroundColor: Colors.transparent,
-                elevation: 0,
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context, false),
+        builder: (context, setDialogState) {
+          void togglePicker(String key) {
+            setDialogState(() {
+              activePicker = (activePicker == key) ? null : key;
+            });
+          }
+
+          Future<void> handleSubmit() async {
+            if (_titleController.text.trim().isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    isJapanese ? 'タイトルを入力してください' : 'Event title cannot be empty!',
+                  ),
+                ),
+              );
+              return;
+            }
+            if (isEditing && eventToEdit.id != null) {
+              globalLoading.value = true;
+              final bool success = await _updateEvent(eventToEdit.id!, _startTime, _endTime);
+              if (success && context.mounted) {
+                Navigator.pop(context, true);
+              }
+            } else {
+              await _makeNewEvents(_startTime, _endTime);
+            }
+          }
+
+          Widget buildGroupedCard(List<Widget> children) {
+            return Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (int i = 0; i < children.length; i++) ...[
+                    children[i],
+                    if (i < children.length - 1)
+                      const Divider(
+                        height: 1,
+                        thickness: 0.5,
+                        indent: 16,
+                        color: Color(0xFFE5E5EA),
+                      ),
+                  ],
+                ],
+              ),
+            );
+          }
+
+          Widget buildApplePill({
+            required String label,
+            required bool isActive,
+            required VoidCallback onTap,
+            IconData? icon,
+          }) {
+            return GestureDetector(
+              onTap: onTap,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isActive
+                      ? CupertinoColors.activeBlue.withOpacity(0.14)
+                      : const Color(0xFFEFEFF4),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (icon != null) ...[
+                      Icon(
+                        icon,
+                        size: 13,
+                        color: isActive ? CupertinoColors.activeBlue : Colors.black87,
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: isActive ? CupertinoColors.activeBlue : Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          Widget buildResponsivePickerRow({
+            required String label,
+            required List<Widget> pills,
+            required bool isVeryNarrow,
+          }) {
+            if (isVeryNarrow) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: const TextStyle(fontSize: 15, color: Colors.black)),
+                    const SizedBox(height: 8),
+                    Wrap(spacing: 6, runSpacing: 6, children: pills),
+                  ],
+                ),
+              );
+            }
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                children: [
+                  Text(label, style: const TextStyle(fontSize: 15, color: Colors.black)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: pills,
+                    ),
                   ),
                 ],
               ),
-              body: Scrollbar(
-                controller: modalScrollController,
-                thumbVisibility: true,
-                trackVisibility: true,
-                child: SingleChildScrollView(
-                  controller: modalScrollController,
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.only(bottom: 40.0, left: 20.0, right: 20.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextField(
-                        controller: _titleController,
-                        decoration: const InputDecoration(hintText: "Event Title"),
-                      ),
-                      const SizedBox(height: 10),
-                      if (_activeSettings.enableTodoList)
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text("Add to To-Do List"),
-                          subtitle: Text(
-                            _isTodo
-                                ? "Uses Due Date / Due Time and syncs with To-Do List"
-                                : "Standard calendar event",
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          value: _isTodo,
-                          onChanged: (bool value) {
-                            setDialogState(() {
-                              _isTodo = value;
-                              if (_isTodo) {
-                                _isRepeating = false;
-                                _repeatType = 'None';
-                                _showStartTimezonePicker = false;
-                                _setDueTime = false;
-                                _isAllDay = true;
-                                _endTime = DateTime(
-                                  _endTime.year,
-                                  _endTime.month,
-                                  _endTime.day,
-                                  23,
-                                  59,
-                                  59,
-                                );
-                              } else {
-                                _setDueTime = false;
-                                _isAllDay = false;
-                              }
-                            });
-                          },
-                        ),
-                      if (!_isTodo)
-                        Row(
-                          children: [
-                            Checkbox(
-                              value: _isAllDay,
-                              onChanged: (bool? value) {
-                                setDialogState(() {
-                                  _isAllDay = value ?? false;
-                                  if (_isAllDay) {
-                                    _startTime = DateTime(
-                                      _startTime.year,
-                                      _startTime.month,
-                                      _startTime.day,
-                                      0,
-                                      0,
-                                      0,
-                                    );
-                                    _endTime = DateTime(
-                                      _endTime.year,
-                                      _endTime.month,
-                                      _endTime.day,
-                                      23,
-                                      59,
-                                      59,
-                                    );
-                                  }
-                                });
-                              },
-                            ),
-                            const Text("All-Day Event"),
-                          ],
-                        ),
-                      if (_isTodo)
-                        Row(
-                          children: [
-                            Checkbox(
-                              value: _setDueTime,
-                              onChanged: (bool? value) {
-                                setDialogState(() {
-                                  _setDueTime = value ?? false;
-                                  _isAllDay = !_setDueTime;
-                                  if (!_setDueTime) {
-                                    _endTime = DateTime(
-                                      _endTime.year,
-                                      _endTime.month,
-                                      _endTime.day,
-                                      23,
-                                      59,
-                                      59,
-                                    );
-                                  }
-                                });
-                              },
-                            ),
-                            const Text("Set Due Time"),
-                          ],
-                        ),
-                      if (!_isTodo)
-                        ListTile(
-                          title: Text(_isAllDay ? "Start Date" : "Start Time"),
-                          trailing: Wrap(
-                            spacing: 8,
-                            runSpacing: 6,
-                            crossAxisAlignment: WrapCrossAlignment.center,
+            );
+          }
+
+          Widget buildInlineWheelDatePicker({
+            required String pickerKey,
+            required DateTime currentDate,
+            required void Function(DateTime picked) onDateChanged,
+          }) {
+            return SizedBox(
+              height: 180,
+              child: CupertinoDatePicker(
+                key: ValueKey(pickerKey),
+                mode: CupertinoDatePickerMode.date,
+                initialDateTime: DateTime(currentDate.year, currentDate.month, currentDate.day),
+                minimumDate: DateTime(2000, 1, 1),
+                maximumDate: DateTime(2100, 12, 31),
+                onDateTimeChanged: onDateChanged,
+              ),
+            );
+          }
+
+          Widget buildInlineWheelTimePicker({
+            required String pickerKey,
+            required DateTime currentTime,
+            required void Function(DateTime picked) onTimeChanged,
+          }) {
+            return SizedBox(
+              height: 180,
+              child: CupertinoDatePicker(
+                key: ValueKey(pickerKey),
+                mode: CupertinoDatePickerMode.time,
+                initialDateTime: currentTime,
+                use24hFormat: true,
+                onDateTimeChanged: onTimeChanged,
+              ),
+            );
+          }
+
+          final bool canSubmit = _titleController.text.trim().isNotEmpty;
+          final String datePattern = isJapanese ? 'yyyy/MM/dd' : 'MMM d, yyyy';
+
+          return Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              child: Container(
+                height: MediaQuery.of(context).size.height * 0.94,
+                color: const Color(0xFFF2F2F7),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final bool isVeryNarrow = constraints.maxWidth < 365;
+                    final double outerPadding = isVeryNarrow ? 12.0 : 16.0;
+
+                    return Column(
+                      children: [
+                        // Apple Calendar Top Drag Handle + Navigation Bar
+                        Container(
+                          color: const Color(0xFFF9F9FB),
+                          padding: const EdgeInsets.only(top: 8, bottom: 4, left: 8, right: 8),
+                          child: Column(
                             children: [
-                              TextButton.icon(
-                                label: Text(
-                                  DateFormat('yyyy-MM-dd').format(_startTime),
-                                  style: const TextStyle(color: Colors.black),
+                              Container(
+                                width: 36,
+                                height: 5,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFC7C7CC),
+                                  borderRadius: BorderRadius.circular(3),
                                 ),
-                                style: TextButton.styleFrom(
-                                  backgroundColor: CupertinoColors.extraLightBackgroundGray,
-                                  shape: const StadiumBorder(),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                                ),
-                                onPressed: () async {
-                                  final DateTime? pickedDate = await showDatePicker(
-                                    context: context,
-                                    initialDate: _startTime,
-                                    firstDate: DateTime(2000),
-                                    lastDate: DateTime(2100),
-                                  );
-                                  if (pickedDate != null) {
-                                    setDialogState(() {
-                                      _startTime = DateTime(
-                                        pickedDate.year,
-                                        pickedDate.month,
-                                        pickedDate.day,
-                                        _isAllDay ? 0 : _startTime.hour,
-                                        _isAllDay ? 0 : _startTime.minute,
-                                      );
-                                      if (_endTime.isBefore(_startTime)) {
-                                        _endTime = _isAllDay
-                                            ? DateTime(pickedDate.year, pickedDate.month, pickedDate.day, 23, 59, 59)
-                                            : _startTime.add(const Duration(hours: 1));
-                                      }
-                                    });
-                                  }
-                                },
                               ),
-                              if (!_isAllDay)
-                                TextButton(
-                                  style: TextButton.styleFrom(
-                                    backgroundColor: CupertinoColors.extraLightBackgroundGray,
-                                    shape: const StadiumBorder(),
-                                    padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  CupertinoButton(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                                    onPressed: () => Navigator.pop(context, false),
+                                    child: Text(
+                                      isJapanese ? 'キャンセル' : 'Cancel',
+                                      style: const TextStyle(
+                                        color: CupertinoColors.activeBlue,
+                                        fontSize: 16,
+                                      ),
+                                    ),
                                   ),
-                                  onPressed: () async {
-                                    final TimeOfDay? pickedTime = await _showAppleStyleTimePicker(
-                                      context: context,
-                                      initialTime: _startTime,
-                                    );
-                                    if (pickedTime != null) {
-                                      setDialogState(() {
-                                        _startTime = DateTime(
-                                          _startTime.year,
-                                          _startTime.month,
-                                          _startTime.day,
-                                          pickedTime.hour,
-                                          pickedTime.minute,
-                                        );
-                                        if (_endTime.isBefore(_startTime)) {
-                                          _endTime = _startTime.add(const Duration(hours: 1));
-                                        }
-                                      });
-                                    }
-                                  },
-                                  child: Text(
-                                    DateFormat('HH:mm').format(_startTime),
-                                    style: const TextStyle(color: Colors.black),
+                                  Text(
+                                    isEditing
+                                        ? (isJapanese ? '予定を編集' : 'Edit Event')
+                                        : (isJapanese ? '新規予定' : 'New Event'),
+                                    style: const TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.black,
+                                    ),
                                   ),
-                                ),
-                              TextButton.icon(
-                                icon: const Icon(Icons.public, size: 16, color: Colors.black),
-                                label: Text(
-                                  _startTimezone.split('/').last,
-                                  style: const TextStyle(color: Colors.black, fontSize: 12),
-                                ),
-                                style: TextButton.styleFrom(
-                                  backgroundColor: _showStartTimezonePicker
-                                      ? Colors.blue.shade100
-                                      : CupertinoColors.extraLightBackgroundGray,
-                                  shape: const StadiumBorder(),
-                                  padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
-                                ),
-                                onPressed: () {
-                                  setDialogState(() {
-                                    _showStartTimezonePicker = !_showStartTimezonePicker;
-                                    if (_showStartTimezonePicker) {
-                                      _showEndTimezonePicker = false;
-                                    }
-                                  });
-                                },
+                                  CupertinoButton(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                                    onPressed: canSubmit ? handleSubmit : null,
+                                    child: Text(
+                                      isEditing
+                                          ? (isJapanese ? '更新' : 'Update')
+                                          : (isJapanese ? '追加' : 'Add'),
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                        color: canSubmit
+                                            ? CupertinoColors.activeBlue
+                                            : CupertinoColors.inactiveGray,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
                         ),
-                      if (!_isTodo && _showStartTimezonePicker)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6, bottom: 10),
-                          child: DropdownButtonFormField<String>(
-                            initialValue: _startTimezone,
-                            decoration: const InputDecoration(
-                              labelText: "Start Timezone",
-                              prefixIcon: Icon(Icons.public),
-                              border: OutlineInputBorder(),
+                        const Divider(height: 1, thickness: 0.5, color: Color(0xFFD1D1D6)),
+
+                        // Scrollable Grouped Cards
+                        Expanded(
+                          child: SingleChildScrollView(
+                            physics: const BouncingScrollPhysics(),
+                            padding: EdgeInsets.fromLTRB(outerPadding, 16, outerPadding, 40),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                // Card 1: Title & Notes (Apple Calendar style)
+                                buildGroupedCard([
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                    child: TextField(
+                                      controller: _titleController,
+                                      style: const TextStyle(fontSize: 16, color: Colors.black),
+                                      decoration: InputDecoration(
+                                        hintText: isJapanese ? 'タイトル' : 'Title',
+                                        hintStyle: const TextStyle(color: CupertinoColors.placeholderText),
+                                        border: InputBorder.none,
+                                      ),
+                                      onChanged: (_) => setDialogState(() {}),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                    child: TextField(
+                                      controller: _memoController,
+                                      maxLines: 3,
+                                      minLines: 1,
+                                      style: const TextStyle(fontSize: 15, color: Colors.black87),
+                                      decoration: InputDecoration(
+                                        hintText: isJapanese ? 'メモ' : 'Notes',
+                                        hintStyle: const TextStyle(color: CupertinoColors.placeholderText),
+                                        border: InputBorder.none,
+                                      ),
+                                    ),
+                                  ),
+                                ]),
+                                const SizedBox(height: 16),
+
+                                // Card 2: To-Do List Sync Toggle (if enabled)
+                                if (_activeSettings.enableTodoList) ...[
+                                  buildGroupedCard([
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  isJapanese ? 'To-Do リストに追加' : 'Add to To-Do List',
+                                                  style: const TextStyle(fontSize: 15, color: Colors.black),
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  _isTodo
+                                                      ? (isJapanese
+                                                          ? '期限日・時刻のみ使用し To-Do と同期'
+                                                          : 'Uses Due Date / Time & syncs with To-Do')
+                                                      : (isJapanese ? '通常のカレンダー予定' : 'Standard calendar event'),
+                                                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          CupertinoSwitch(
+                                            value: _isTodo,
+                                            onChanged: (bool value) {
+                                              setDialogState(() {
+                                                _isTodo = value;
+                                                activePicker = null;
+                                                if (_isTodo) {
+                                                  _isRepeating = false;
+                                                  _repeatType = 'None';
+                                                  _setDueTime = false;
+                                                  _isAllDay = true;
+                                                  _endTime = DateTime(
+                                                    _endTime.year,
+                                                    _endTime.month,
+                                                    _endTime.day,
+                                                    23,
+                                                    59,
+                                                    59,
+                                                  );
+                                                } else {
+                                                  _setDueTime = false;
+                                                  _isAllDay = false;
+                                                }
+                                              });
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ]),
+                                  const SizedBox(height: 16),
+                                ],
+
+                                // Card 3: All-day, Starts, Ends / Due Date & Timezone
+                                buildGroupedCard([
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          _isTodo
+                                              ? (isJapanese ? '期限時刻を設定' : 'Set Due Time')
+                                              : (isJapanese ? '終日' : 'All-day'),
+                                          style: const TextStyle(fontSize: 15, color: Colors.black),
+                                        ),
+                                        CupertinoSwitch(
+                                          value: _isTodo ? _setDueTime : _isAllDay,
+                                          onChanged: (bool value) {
+                                            setDialogState(() {
+                                              activePicker = null;
+                                              if (_isTodo) {
+                                                _setDueTime = value;
+                                                _isAllDay = !_setDueTime;
+                                                if (!_setDueTime) {
+                                                  _endTime = DateTime(
+                                                    _endTime.year,
+                                                    _endTime.month,
+                                                    _endTime.day,
+                                                    23,
+                                                    59,
+                                                    59,
+                                                  );
+                                                }
+                                              } else {
+                                                _isAllDay = value;
+                                                if (_isAllDay) {
+                                                  _startTime = DateTime(
+                                                    _startTime.year,
+                                                    _startTime.month,
+                                                    _startTime.day,
+                                                    0,
+                                                    0,
+                                                    0,
+                                                  );
+                                                  _endTime = DateTime(
+                                                    _endTime.year,
+                                                    _endTime.month,
+                                                    _endTime.day,
+                                                    23,
+                                                    59,
+                                                    59,
+                                                  );
+                                                }
+                                              }
+                                            });
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+
+                                  // Starts Row (Standard Event)
+                                  if (!_isTodo) ...[
+                                    buildResponsivePickerRow(
+                                      label: isJapanese ? '開始' : 'Starts',
+                                      isVeryNarrow: isVeryNarrow,
+                                      pills: [
+                                        buildApplePill(
+                                          label: DateFormat(datePattern).format(_startTime),
+                                          isActive: activePicker == 'startDate',
+                                          onTap: () => togglePicker('startDate'),
+                                        ),
+                                        if (!_isAllDay)
+                                          buildApplePill(
+                                            label: DateFormat('HH:mm').format(_startTime),
+                                            isActive: activePicker == 'startTime',
+                                            onTap: () => togglePicker('startTime'),
+                                          ),
+                                        buildApplePill(
+                                          icon: Icons.public,
+                                          label: _startTimezone.split('/').last,
+                                          isActive: activePicker == 'startTz',
+                                          onTap: () => togglePicker('startTz'),
+                                        ),
+                                      ],
+                                    ),
+                                    if (activePicker == 'startDate')
+                                      buildInlineWheelDatePicker(
+                                        pickerKey: 'startDate',
+                                        currentDate: _startTime,
+                                        onDateChanged: (picked) {
+                                          setDialogState(() {
+                                            _startTime = DateTime(
+                                              picked.year,
+                                              picked.month,
+                                              picked.day,
+                                              _isAllDay ? 0 : _startTime.hour,
+                                              _isAllDay ? 0 : _startTime.minute,
+                                            );
+                                            if (_endTime.isBefore(_startTime)) {
+                                              _endTime = _isAllDay
+                                                  ? DateTime(picked.year, picked.month, picked.day, 23, 59, 59)
+                                                  : _startTime.add(const Duration(hours: 1));
+                                            }
+                                          });
+                                        },
+                                      ),
+                                    if (activePicker == 'startTime' && !_isAllDay)
+                                      buildInlineWheelTimePicker(
+                                        pickerKey: 'startTime',
+                                        currentTime: _startTime,
+                                        onTimeChanged: (picked) {
+                                          setDialogState(() {
+                                            _startTime = DateTime(
+                                              _startTime.year,
+                                              _startTime.month,
+                                              _startTime.day,
+                                              picked.hour,
+                                              picked.minute,
+                                            );
+                                            if (_endTime.isBefore(_startTime)) {
+                                              _endTime = _startTime.add(const Duration(hours: 1));
+                                            }
+                                          });
+                                        },
+                                      ),
+                                    if (activePicker == 'startTz')
+                                      Padding(
+                                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                                        child: DropdownButtonFormField<String>(
+                                          initialValue: _startTimezone,
+                                          decoration: InputDecoration(
+                                            labelText: isJapanese ? '開始タイムゾーン' : 'Start Timezone',
+                                            prefixIcon: const Icon(Icons.public),
+                                            border: const OutlineInputBorder(),
+                                            isDense: true,
+                                          ),
+                                          items: kSupportedTimezones.map((tz) {
+                                            return DropdownMenuItem(value: tz, child: Text(tz));
+                                          }).toList(),
+                                          onChanged: (val) {
+                                            if (val != null) {
+                                              setDialogState(() {
+                                                _startTimezone = val;
+                                                activePicker = null;
+                                              });
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                  ],
+
+                                  // Ends / Due Row
+                                  buildResponsivePickerRow(
+                                    label: _isTodo
+                                        ? (isJapanese ? '期限' : 'Due')
+                                        : (isJapanese ? '終了' : 'Ends'),
+                                    isVeryNarrow: isVeryNarrow,
+                                    pills: [
+                                      buildApplePill(
+                                        label: DateFormat(datePattern).format(_endTime),
+                                        isActive: activePicker == 'endDate',
+                                        onTap: () => togglePicker('endDate'),
+                                      ),
+                                      if ((!_isTodo && !_isAllDay) || (_isTodo && _setDueTime))
+                                        buildApplePill(
+                                          label: DateFormat('HH:mm').format(_endTime),
+                                          isActive: activePicker == 'endTime',
+                                          onTap: () => togglePicker('endTime'),
+                                        ),
+                                      buildApplePill(
+                                        icon: Icons.public,
+                                        label: _endTimezone.split('/').last,
+                                        isActive: activePicker == 'endTz',
+                                        onTap: () => togglePicker('endTz'),
+                                      ),
+                                    ],
+                                  ),
+                                  if (activePicker == 'endDate')
+                                    buildInlineWheelDatePicker(
+                                      pickerKey: 'endDate',
+                                      currentDate: _endTime,
+                                      onDateChanged: (picked) {
+                                        setDialogState(() {
+                                          final bool keepAllDay = _isTodo ? !_setDueTime : _isAllDay;
+                                          _endTime = DateTime(
+                                            picked.year,
+                                            picked.month,
+                                            picked.day,
+                                            keepAllDay ? 23 : _endTime.hour,
+                                            keepAllDay ? 59 : _endTime.minute,
+                                            keepAllDay ? 59 : 0,
+                                          );
+                                          if (!_isTodo && _startTime.isAfter(_endTime)) {
+                                            _startTime = keepAllDay
+                                                ? DateTime(picked.year, picked.month, picked.day, 0, 0, 0)
+                                                : _endTime.subtract(const Duration(hours: 1));
+                                          }
+                                        });
+                                      },
+                                    ),
+                                  if (activePicker == 'endTime' &&
+                                      ((!_isTodo && !_isAllDay) || (_isTodo && _setDueTime)))
+                                    buildInlineWheelTimePicker(
+                                      pickerKey: 'endTime',
+                                      currentTime: _endTime,
+                                      onTimeChanged: (picked) {
+                                        setDialogState(() {
+                                          _endTime = DateTime(
+                                            _endTime.year,
+                                            _endTime.month,
+                                            _endTime.day,
+                                            picked.hour,
+                                            picked.minute,
+                                          );
+                                          if (!_isTodo && _startTime.isAfter(_endTime)) {
+                                            _startTime = _endTime.subtract(const Duration(hours: 1));
+                                          }
+                                        });
+                                      },
+                                    ),
+                                  if (activePicker == 'endTz')
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                                      child: DropdownButtonFormField<String>(
+                                        initialValue: _endTimezone,
+                                        decoration: InputDecoration(
+                                          labelText: _isTodo
+                                              ? (isJapanese ? '期限タイムゾーン' : 'Due Timezone')
+                                              : (isJapanese ? '終了タイムゾーン' : 'End Timezone'),
+                                          prefixIcon: const Icon(Icons.public),
+                                          border: const OutlineInputBorder(),
+                                          isDense: true,
+                                        ),
+                                        items: kSupportedTimezones.map((tz) {
+                                          return DropdownMenuItem(value: tz, child: Text(tz));
+                                        }).toList(),
+                                        onChanged: (val) {
+                                          if (val != null) {
+                                            setDialogState(() {
+                                              _endTimezone = val;
+                                              if (_isTodo) _startTimezone = val;
+                                              activePicker = null;
+                                            });
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                ]),
+                                const SizedBox(height: 16),
+
+                                // Card 4: Repeat (Apple Calendar style)
+                                if (!_isTodo) ...[
+                                  buildGroupedCard([
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            isJapanese ? '繰り返し' : 'Repeat',
+                                            style: const TextStyle(fontSize: 15, color: Colors.black),
+                                          ),
+                                          DropdownButtonHideUnderline(
+                                            child: DropdownButton<String>(
+                                              value: _isRepeating ? _repeatType : 'None',
+                                              icon: const Icon(
+                                                CupertinoIcons.chevron_up_chevron_down,
+                                                size: 16,
+                                                color: Colors.grey,
+                                              ),
+                                              style: const TextStyle(fontSize: 15, color: Colors.grey),
+                                              items: ['None', ..._repeatOptions].map((opt) {
+                                                return DropdownMenuItem(
+                                                  value: opt,
+                                                  child: Text(repeatDisplayLabel(opt)),
+                                                );
+                                              }).toList(),
+                                              onChanged: (val) {
+                                                if (val == null) return;
+                                                setDialogState(() {
+                                                  if (val == 'None') {
+                                                    _isRepeating = false;
+                                                    _repeatType = 'None';
+                                                    _endOn = false;
+                                                  } else {
+                                                    _isRepeating = true;
+                                                    _repeatType = val;
+                                                    final minYearlyEnd = DateTime(
+                                                      _startTime.year + 1,
+                                                      _startTime.month,
+                                                      _startTime.day,
+                                                    );
+                                                    if (_repeatType == 'Yearly' &&
+                                                        _repeatEndDate.isBefore(minYearlyEnd)) {
+                                                      _repeatEndDate = minYearlyEnd;
+                                                    }
+                                                  }
+                                                });
+                                              },
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    if (_isRepeating) ...[
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              isJapanese ? '繰り返し終了日' : 'End Repeat',
+                                              style: const TextStyle(fontSize: 15, color: Colors.black),
+                                            ),
+                                            CupertinoSwitch(
+                                              value: _endOn,
+                                              onChanged: (val) {
+                                                setDialogState(() {
+                                                  _endOn = val;
+                                                  if (!_endOn && activePicker == 'repeatEnd') {
+                                                    activePicker = null;
+                                                  }
+                                                });
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (_endOn) ...[
+                                        buildResponsivePickerRow(
+                                          label: isJapanese ? '終了日' : 'End Date',
+                                          isVeryNarrow: isVeryNarrow,
+                                          pills: [
+                                            buildApplePill(
+                                              label: DateFormat(datePattern).format(_repeatEndDate),
+                                              isActive: activePicker == 'repeatEnd',
+                                              onTap: () => togglePicker('repeatEnd'),
+                                            ),
+                                          ],
+                                        ),
+                                        if (activePicker == 'repeatEnd')
+                                          buildInlineWheelDatePicker(
+                                            pickerKey: 'repeatEnd',
+                                            currentDate: _repeatEndDate,
+                                            onDateChanged: (picked) {
+                                              setDialogState(() {
+                                                _repeatEndDate = picked;
+                                              });
+                                            },
+                                          ),
+                                      ],
+                                    ],
+                                  ]),
+                                  const SizedBox(height: 16),
+                                ],
+
+                                // Card 5: Calendar / Event Type (Apple Calendar colored dot style)
+                                buildGroupedCard([
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          isJapanese ? 'カレンダー種類' : 'Calendar',
+                                          style: const TextStyle(fontSize: 15, color: Colors.black),
+                                        ),
+                                        DropdownButtonHideUnderline(
+                                          child: DropdownButton<String>(
+                                            value: _eventTypes.contains(_eventType)
+                                                ? _eventType
+                                                : _eventTypes.first,
+                                            icon: const Icon(
+                                              CupertinoIcons.chevron_up_chevron_down,
+                                              size: 16,
+                                              color: Colors.grey,
+                                            ),
+                                            items: _eventTypes.map((String type) {
+                                              return DropdownMenuItem<String>(
+                                                value: type,
+                                                child: Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Container(
+                                                      width: 10,
+                                                      height: 10,
+                                                      decoration: BoxDecoration(
+                                                        color: _getEventColor(type),
+                                                        shape: BoxShape.circle,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    Text(
+                                                      type,
+                                                      style: const TextStyle(
+                                                        fontSize: 15,
+                                                        color: Colors.black87,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              );
+                                            }).toList(),
+                                            onChanged: (String? newValue) {
+                                              if (newValue != null) {
+                                                setDialogState(() => _eventType = newValue);
+                                              }
+                                            },
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ]),
+                              ],
                             ),
-                            items: kSupportedTimezones.map((String tzName) {
-                              return DropdownMenuItem<String>(
-                                value: tzName,
-                                child: Text(tzName),
-                              );
-                            }).toList(),
-                            onChanged: (String? newValue) {
-                              if (newValue != null) {
-                                setDialogState(() {
-                                  _startTimezone = newValue;
-                                  _showStartTimezonePicker = false;
-                                });
-                              }
-                            },
                           ),
-                        ),
-                      const Divider(height: 1),
-                      ListTile(
-                        title: Text(
-                          _isTodo ? "Due Date" : (_isAllDay ? "End Date" : "End Time"),
-                        ),
-                        trailing: Wrap(
-                          spacing: 8,
-                          runSpacing: 6,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            TextButton.icon(
-                              label: Text(
-                                DateFormat('yyyy-MM-dd').format(_endTime),
-                                style: const TextStyle(color: Colors.black),
-                              ),
-                              style: TextButton.styleFrom(
-                                backgroundColor: CupertinoColors.extraLightBackgroundGray,
-                                shape: const StadiumBorder(),
-                                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                              ),
-                              onPressed: () async {
-                                final DateTime? pickedDate = await showDatePicker(
-                                  context: context,
-                                  initialDate: _endTime,
-                                  firstDate: DateTime(2000),
-                                  lastDate: DateTime(2100),
-                                );
-                                if (pickedDate != null) {
-                                  setDialogState(() {
-                                    final bool keepAllDay = _isTodo ? !_setDueTime : _isAllDay;
-                                    _endTime = DateTime(
-                                      pickedDate.year,
-                                      pickedDate.month,
-                                      pickedDate.day,
-                                      keepAllDay ? 23 : _endTime.hour,
-                                      keepAllDay ? 59 : _endTime.minute,
-                                      keepAllDay ? 59 : 0,
-                                    );
-                                    if (!_isTodo && _startTime.isAfter(_endTime)) {
-                                      _startTime = keepAllDay
-                                          ? DateTime(pickedDate.year, pickedDate.month, pickedDate.day, 0, 0, 0)
-                                          : _endTime.subtract(const Duration(hours: 1));
-                                    }
-                                  });
-                                }
-                              },
-                            ),
-                            if (!_isTodo && !_isAllDay)
-                              TextButton(
-                                style: TextButton.styleFrom(
-                                  backgroundColor: CupertinoColors.extraLightBackgroundGray,
-                                  shape: const StadiumBorder(),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                                ),
-                                onPressed: () async {
-                                  final TimeOfDay? pickedTime = await _showAppleStyleTimePicker(
-                                    context: context,
-                                    initialTime: _endTime,
-                                  );
-                                  if (pickedTime != null) {
-                                    setDialogState(() {
-                                      _endTime = DateTime(
-                                        _endTime.year,
-                                        _endTime.month,
-                                        _endTime.day,
-                                        pickedTime.hour,
-                                        pickedTime.minute,
-                                      );
-                                      if (!_isTodo && _startTime.isAfter(_endTime)) {
-                                        _startTime = _endTime.subtract(const Duration(hours: 1));
-                                      }
-                                    });
-                                  }
-                                },
-                                child: Text(
-                                  DateFormat('HH:mm').format(_endTime),
-                                  style: const TextStyle(color: Colors.black),
-                                ),
-                              ),
-                              TextButton.icon(
-                                icon: const Icon(Icons.public, size: 16, color: Colors.black),
-                                label: Text(
-                                  _endTimezone.split('/').last,
-                                  style: const TextStyle(color: Colors.black, fontSize: 12),
-                                ),
-                                style: TextButton.styleFrom(
-                                  backgroundColor: _showEndTimezonePicker
-                                      ? Colors.blue.shade100
-                                      : CupertinoColors.extraLightBackgroundGray,
-                                  shape: const StadiumBorder(),
-                                  padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
-                                ),
-                                onPressed: () {
-                                  setDialogState(() {
-                                    _showEndTimezonePicker = !_showEndTimezonePicker;
-                                    if (_showEndTimezonePicker) {
-                                      _showStartTimezonePicker = false;
-                                    }
-                                  });
-                                },
-                              ),
-                          ],
-                        ),
-                      ),
-                      if (_isTodo && _setDueTime)
-                        ListTile(
-                          title: const Text("Due Time"),
-                          trailing: TextButton(
-                            style: TextButton.styleFrom(
-                              backgroundColor: CupertinoColors.extraLightBackgroundGray,
-                              shape: const StadiumBorder(),
-                              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                            ),
-                            onPressed: () async {
-                              final TimeOfDay? pickedTime = await _showAppleStyleTimePicker(
-                                context: context,
-                                initialTime: _endTime,
-                              );
-                              if (pickedTime != null) {
-                                setDialogState(() {
-                                  _endTime = DateTime(
-                                    _endTime.year,
-                                    _endTime.month,
-                                    _endTime.day,
-                                    pickedTime.hour,
-                                    pickedTime.minute,
-                                  );
-                                });
-                              }
-                            },
-                            child: Text(
-                              DateFormat('HH:mm').format(_endTime),
-                              style: const TextStyle(color: Colors.black),
-                            ),
-                          ),
-                        ),
-                      if (_showEndTimezonePicker)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6, bottom: 10),
-                          child: DropdownButtonFormField<String>(
-                            initialValue: _endTimezone,
-                            decoration: InputDecoration(
-                              labelText: _isTodo ? "Due Timezone" : "End Timezone",
-                              prefixIcon: const Icon(Icons.public),
-                              border: const OutlineInputBorder(),
-                            ),
-                            items: kSupportedTimezones.map((String tzName) {
-                              return DropdownMenuItem<String>(
-                                value: tzName,
-                                child: Text(tzName),
-                              );
-                            }).toList(),
-                            onChanged: (String? newValue) {
-                              if (newValue != null) {
-                                setDialogState(() {
-                                  _endTimezone = newValue;
-                                  if (_isTodo) {
-                                    _startTimezone = newValue;
-                                  }
-                                  _showEndTimezonePicker = false;
-                                });
-                              }
-                            },
-                          ),
-                        ),
-                      const Divider(height: 1),
-                      if (!_isTodo)
-                        Row(
-                          children: [
-                            Checkbox(
-                              value: _isRepeating,
-                              onChanged: (bool? value) {
-                                setDialogState(() {
-                                  _isRepeating = value ?? false;
-                                  if (_isRepeating && !_repeatOptions.contains(_repeatType)) {
-                                    _repeatType = 'Daily';
-                                  } else if (!_isRepeating) {
-                                    _repeatType = 'None';
-                                  }
-                                });
-                              },
-                            ),
-                            const Text("Repeat this event"),
-                          ],
-                        ),
-                      if (!_isTodo && _isRepeating) ...[
-                        const SizedBox(height: 10),
-                        DropdownButtonFormField<String>(
-                          initialValue: _repeatType == 'None' ? 'Daily' : _repeatType,
-                          decoration: const InputDecoration(
-                            labelText: "How often?",
-                            border: OutlineInputBorder(),
-                          ),
-                          items: _repeatOptions
-                              .map((option) => DropdownMenuItem<String>(
-                                    value: option,
-                                    child: Text(option),
-                                  ))
-                              .toList(),
-                          onChanged: (value) => setDialogState(() {
-                            _repeatType = value!;
-                            final minYearlyEnd = DateTime(_startTime.year + 1, _startTime.month, _startTime.day);
-                            if (_repeatType == 'Yearly' && _repeatEndDate.isBefore(minYearlyEnd)) {
-                              _repeatEndDate = minYearlyEnd;
-                            }
-                          }),
                         ),
                       ],
-                      if (!_isTodo && _isRepeating) ...[
-                        Row(
-                          children: [
-                            Checkbox(
-                              value: _endOn,
-                              onChanged: (bool? value) {
-                                setDialogState(() {
-                                  _endOn = value ?? false;
-                                });
-                              },
-                            ),
-                            const Text("Set an end date for repeating"),
-                          ],
-                        ),
-                      ],
-                      if (!_isTodo && _isRepeating && _endOn) ...[
-                        TextButton.icon(
-                          icon: const Icon(Icons.calendar_today),
-                          label: Text("The repeat finishes on: ${DateFormat('yyyy-MM-dd').format(_repeatEndDate)}"),
-                          onPressed: () async {
-                            final DateTime? picked = await showDatePicker(
-                              context: context,
-                              initialDate: _repeatEndDate,
-                              firstDate: DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day),
-                              lastDate: DateTime(2100),
-                            );
-                            if (picked != null) {
-                              setDialogState(() {
-                                _repeatEndDate = picked;
-                              });
-                            }
-                          },
-                        ),
-                      ],
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: _memoController,
-                        decoration: const InputDecoration(
-                          labelText: "Memo/ Description",
-                          prefixIcon: Icon(Icons.note),
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 15),
-                      DropdownButtonFormField<String>(
-                        initialValue: _eventType,
-                        decoration: const InputDecoration(
-                          labelText: "Event Type",
-                          prefixIcon: Icon(Icons.category),
-                          border: OutlineInputBorder(),
-                        ),
-                        items: _eventTypes.map((String type) {
-                          return DropdownMenuItem<String>(
-                            value: type,
-                            child: Text(type),
-                          );
-                        }).toList(),
-                        onChanged: (String? newValue) {
-                          setDialogState(() {
-                            _eventType = newValue!;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 15),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context, false),
-                            child: const Text("Cancel"),
-                          ),
-                          ElevatedButton(
-                            onPressed: () async {
-                              if (_titleController.text.isNotEmpty) {
-                                if (isEditing && eventToEdit.id != null) {
-                                  globalLoading.value = true;
-                                  bool success = await _updateEvent(eventToEdit.id!, _startTime, _endTime);
-                                  if (success && context.mounted) {
-                                    Navigator.pop(context, true);
-                                  }
-                                } else {
-                                  await _makeNewEvents(_startTime, _endTime);
-                                }
-                              } else {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text("Event title cannot be empty!")),
-                                );
-                              }
-                            },
-                            child: Text(isEditing ? "Update" : "Save"),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
@@ -1133,9 +1373,17 @@ class _CalendarPageState extends State<CalendarPage> {
 
   @override
   Widget build(BuildContext context) {
+    const Color appleRed = Color(0xFFFF3B30);
+    const Color appleBg = Color(0xFFFFFFFF);
+    const Color appleGroupedBg = Color(0xFFF2F2F7);
+    const Color appleHairline = Color(0xFFE5E5EA);
+    const Color appleSecondaryLabel = Color(0xFF8E8E93);
+    const Color appleDarkCircle = Color(0xFF1C1C1E);
+
     String localQuery = '';
     bool isSearchByName = true;
-    
+    final TextEditingController searchController = TextEditingController();
+
     final List<String> tabKeys = ['calendar'];
     if (_activeSettings.enableTodoList) tabKeys.add('todo');
     if (_activeSettings.enablePayroll) tabKeys.add('payroll');
@@ -1146,519 +1394,671 @@ class _CalendarPageState extends State<CalendarPage> {
     }
     final String activeTab = tabKeys[_currentTabIndex];
     final bool isJapanese = _activeSettings.language == 'ja';
-    Widget buildAppleDockBar() {
-      return SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 14, left: 16, right: 16),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(28),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.82),
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(
-                    color: Colors.white.withOpacity(0.95),
-                    width: 1.2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.14),
-                      blurRadius: 24,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: List.generate(tabKeys.length, (index) {
-                    final key = tabKeys[index];
-                    final bool selected = index == _currentTabIndex;
-                    late IconData icon;
-                    late String label;
-                    late Color accentColor;
-                    switch (key) {
-                      case 'todo':
-                        icon = Icons.check_circle_rounded;
-                        label = 'To-Do';
-                        accentColor = Colors.green;
-                        break;
-                      case 'payroll':
-                        icon = Icons.payments_rounded;
-                        label = isJapanese ? '給与' : 'Payroll';
-                        accentColor = Colors.orange;
-                        break;
-                      case 'settings':
-                        icon = Icons.settings_rounded;
-                        label = isJapanese ? '設定' : 'Settings';
-                        accentColor = Colors.blueGrey;
-                        break;
-                      case 'calendar':
-                      default:
-                        icon = Icons.calendar_month_rounded;
-                        label = isJapanese ? 'カレンダー' : 'Calendar';
-                        accentColor = Colors.blue;
-                        break;
-                    }
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () async {
-                          setState(() => _currentTabIndex = index);
-                          if (key == 'calendar') {
-                            await fetchEventsFromJava();
-                          }
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 180),
-                          curve: Curves.easeOutCubic,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: selected
-                                ? accentColor.withOpacity(0.14)
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(18),
+
+    Future<void> openAppleSearchMenu(BuildContext anchorContext, double screenWidth) async {
+      localQuery = '';
+      final RenderBox button = anchorContext.findRenderObject() as RenderBox;
+      final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+      final RelativeRect position = RelativeRect.fromRect(
+        Rect.fromPoints(
+          button.localToGlobal(Offset.zero, ancestor: overlay),
+          button.localToGlobal(button.size.bottomRight(Offset.zero), ancestor: overlay),
+        ),
+        Offset.zero & overlay.size,
+      );
+      final double menuWidth = (screenWidth - 48).clamp(260.0, 410.0);
+      await showMenu(
+        context: context,
+        position: position,
+        color: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        items: [
+          PopupMenuItem(
+            value: 'search',
+            enabled: false,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: StatefulBuilder(
+              builder: (context, menuSetState) {
+                final suggestions = _events.where((event) {
+                  if (localQuery.isEmpty) return false;
+                  if (isSearchByName) {
+                    return event.title.toLowerCase().startsWith(localQuery.toLowerCase()) ||
+                      event.title.toLowerCase().contains(localQuery.toLowerCase());
+                  } else {
+                    return event.eventType.toLowerCase().startsWith(localQuery.toLowerCase());
+                  }
+                }).toList();
+                return SizedBox(
+                  width: menuWidth,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: isSearchByName
+                                ? TextField(
+                                    controller: searchController,
+                                    autofocus: true,
+                                    style: const TextStyle(fontSize: 14, color: Colors.black),
+                                    decoration: InputDecoration(
+                                      hintText: isJapanese ? 'タイトルで検索...' : 'Search by title...',
+                                      hintStyle: const TextStyle(
+                                        fontSize: 13,
+                                        color: CupertinoColors.placeholderText,
+                                      ),
+                                      prefixIcon: const Icon(
+                                        CupertinoIcons.search,
+                                        size: 16,
+                                        color: appleSecondaryLabel,
+                                      ),
+                                      prefixIconConstraints: const BoxConstraints(
+                                        minWidth: 32,
+                                        minHeight: 34,
+                                      ),
+                                      suffixIcon: localQuery.isEmpty
+                                          ? null
+                                          : GestureDetector(
+                                              onTap: () {
+                                                searchController.clear();
+                                                menuSetState(() => localQuery = '');
+                                              },
+                                              child: const Icon(
+                                                CupertinoIcons.clear_thick_circled,
+                                                size: 16,
+                                                color: appleSecondaryLabel,
+                                              ),
+                                            ),
+                                      suffixIconConstraints: const BoxConstraints(
+                                        minWidth: 30,
+                                        minHeight: 34,
+                                      ),
+                                      contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 8,
+                                      ),
+                                      isDense: true,
+                                      filled: true,
+                                      fillColor: appleGroupedBg,
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                        borderSide: BorderSide.none,
+                                      ),
+                                    ),
+                                    onChanged: (value) => menuSetState(() => localQuery = value),
+                                  )
+                                : DropdownButtonFormField<String>(
+                                    value: localQuery.isEmpty ? null : localQuery,
+                                    isExpanded: true,
+                                    icon: const Icon(
+                                      CupertinoIcons.chevron_up_chevron_down,
+                                      size: 14,
+                                      color: appleSecondaryLabel,
+                                    ),
+                                    decoration: InputDecoration(
+                                      hintText: isJapanese ? '種類を選択' : 'Select a type',
+                                      hintStyle: const TextStyle(
+                                        fontSize: 13,
+                                        color: CupertinoColors.placeholderText,
+                                      ),
+                                      contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 8,
+                                      ),
+                                      isDense: true,
+                                      filled: true,
+                                      fillColor: appleGroupedBg,
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                        borderSide: BorderSide.none,
+                                      ),
+                                    ),
+                                    items: _eventTypes.map((String typeName) {
+                                      return DropdownMenuItem<String>(
+                                        value: typeName,
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Container(
+                                              width: 8,
+                                              height: 8,
+                                              decoration: BoxDecoration(
+                                                color: _getEventColor(typeName),
+                                                shape: BoxShape.circle,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Flexible(
+                                              child: Text(
+                                                typeName,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(fontSize: 13),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }).toList(),
+                                    onChanged: (String? newValue) {
+                                      if (newValue != null) {
+                                        menuSetState(() => localQuery = newValue);
+                                      }
+                                    },
+                                  ),
                           ),
+                          const SizedBox(width: 6),
+                          CupertinoSlidingSegmentedControl<bool>(
+                            groupValue: isSearchByName,
+                            padding: const EdgeInsets.all(2),
+                            children: {
+                              true: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                child: Text(
+                                  isJapanese ? 'タイトル' : 'Title',
+                                  style: const TextStyle(fontSize: 11, color: Colors.black),
+                                ),
+                              ),
+                              false: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                child: Text(
+                                  isJapanese ? '種類' : 'Type',
+                                  style: const TextStyle(fontSize: 11, color: Colors.black),
+                                ),
+                              ),
+                            },
+                            onValueChanged: (value) {
+                              if (value != null) {
+                                menuSetState(() {
+                                  isSearchByName = value;
+                                  localQuery = '';
+                                  searchController.clear();
+                                });
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                      if (localQuery.isNotEmpty && suggestions.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Divider(height: 1),
+                        Container(
+                          constraints: const BoxConstraints(maxHeight: 180),
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: suggestions.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final event = suggestions[index];
+                              return ListTile(
+                                dense: true,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                                leading: Container(
+                                  width: 4,
+                                  height: 24,
+                                  decoration: BoxDecoration(
+                                    color: _getEventColor(event.eventType),
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                ),
+                                title: Text(
+                                  event.title,
+                                  style: const TextStyle(fontSize: 14, color: Colors.black, fontWeight: FontWeight.w500),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                trailing: Text(
+                                  DateFormat('yyyy-MM-dd').format(event.displayEffectiveTime),
+                                  style: const TextStyle(fontSize: 12, color: appleSecondaryLabel),
+                                ),
+                                onTap: () async {
+                                  Navigator.pop(context);
+                                  final target = event.displayEffectiveTime;
+                                  final bool yearChanged = target.year != _focusedDay.year;
+                                  setState(() {
+                                    _selectedDay = target;
+                                    _focusedDay = target;
+                                  });
+                                  if (yearChanged) {
+                                    await fetchEventsFromJava(targetYear: target.year);
+                                  }
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                      if (localQuery.isNotEmpty && suggestions.isEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Divider(height: 1),
+                        SizedBox(
+                          height: 40,
+                          child: Center(
+                            child: Text(
+                              isJapanese ? '予定が見つかりません' : 'No matching events',
+                              style: const TextStyle(fontSize: 13, color: appleSecondaryLabel),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      );
+    }
+
+    Widget buildAppleTopHeader(double screenWidth) {
+      final bool isCompact = screenWidth < 400;
+      final String yearText = '${_focusedDay.year}';
+      final String monthTitle = isJapanese
+          ? DateFormat('M月').format(_focusedDay)
+          : DateFormat('MMMM').format(_focusedDay);
+
+      String nonCalendarTitle = isJapanese ? 'To-Do リスト' : 'To-Do List';
+      if (activeTab == 'payroll') nonCalendarTitle = isJapanese ? '給与計算' : 'Payroll';
+      if (activeTab == 'settings') nonCalendarTitle = isJapanese ? '設定' : 'Settings';
+
+      return Container(
+        decoration: const BoxDecoration(
+          color: appleBg,
+          border: Border(bottom: BorderSide(color: appleHairline, width: 0.5)),
+        ),
+        child: SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(isCompact ? 12 : 16, 6, isCompact ? 8 : 12, 8),
+            child: activeTab == 'calendar'
+                ? Row(
+                    children: [
+                      // Apple Calendar Year + Bold Month Title (Tap to jump date)
+                      Expanded(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () async {
+                            final DateTime? picked = await showDatePicker(
+                              context: context,
+                              initialDate: _focusedDay,
+                              firstDate: DateTime(2000, 1, 1),
+                              lastDate: DateTime(2100, 12, 31),
+                            );
+                            if (picked != null) {
+                              setState(() {
+                                _focusedDay = picked;
+                                _selectedDay = picked;
+                              });
+                              await fetchEventsFromJava(targetYear: picked.year);
+                            }
+                          },
                           child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              AnimatedScale(
-                                scale: selected ? 1.12 : 1.0,
-                                duration: const Duration(milliseconds: 180),
-                                child: Icon(
-                                  icon,
-                                  size: 24,
-                                  color: selected ? accentColor : Colors.grey.shade700,
-                                ),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    CupertinoIcons.chevron_left,
+                                    size: 13,
+                                    color: appleRed,
+                                  ),
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    isJapanese ? '$yearText年' : yearText,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                      color: appleRed,
+                                    ),
+                                  ),
+                                  if (widget.username.isNotEmpty) ...[
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child: Text(
+                                        '• ${widget.username}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: appleSecondaryLabel,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
-                              const SizedBox(height: 3),
-                              Text(
-                                label,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                                  color: selected ? accentColor : Colors.grey.shade700,
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              AnimatedContainer(
-                                duration: const Duration(milliseconds: 180),
-                                width: selected ? 5 : 0,
-                                height: 5,
-                                decoration: BoxDecoration(
-                                  color: selected ? accentColor : Colors.transparent,
-                                  shape: BoxShape.circle,
-                                ),
+                              Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      monthTitle,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: isCompact ? 22 : 28,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: -0.6,
+                                        color: Colors.black,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 2),
+                                  CupertinoButton(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                    minSize: 24,
+                                    onPressed: () {
+                                      final prev = DateTime(_focusedDay.year, _focusedDay.month - 1, 1);
+                                      setState(() => _focusedDay = prev);
+                                      fetchEventsFromJava(targetYear: prev.year, silent: true);
+                                    },
+                                    child: const Icon(
+                                      CupertinoIcons.chevron_left,
+                                      size: 15,
+                                      color: appleSecondaryLabel,
+                                    ),
+                                  ),
+                                  CupertinoButton(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                    minSize: 24,
+                                    onPressed: () {
+                                      final next = DateTime(_focusedDay.year, _focusedDay.month + 1, 1);
+                                      setState(() => _focusedDay = next);
+                                      fetchEventsFromJava(targetYear: next.year, silent: true);
+                                    },
+                                    child: const Icon(
+                                      CupertinoIcons.chevron_right,
+                                      size: 15,
+                                      color: appleSecondaryLabel,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
                         ),
                       ),
-                    );
-                  }),
-                ),
-              ),
-            ),
+                      //Apple Red Action Icons (Serch, Add +)
+                      Builder(
+                        builder: (btnCtx) => CupertinoButton(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          minSize: 32,
+                          onPressed: () => openAppleSearchMenu(btnCtx, screenWidth),
+                          child: const Icon(CupertinoIcons.search, color: appleRed, size: 21),
+                        ),
+                      ),
+                      CupertinoButton(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        minSize: 32,
+                        onPressed: globalLoading.value
+                            ? null
+                            : () => _showAddEventDialog(context, _selectedDay),
+                        child: const Icon(CupertinoIcons.plus, color: appleRed, size: 23),
+                      ),
+                    ],
+                  )
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (widget.username.isNotEmpty)
+                            Text(
+                              widget.username,
+                              style: const TextStyle(fontSize: 12, color: appleSecondaryLabel),
+                            ),
+                          Text(
+                            nonCalendarTitle,
+                            style: TextStyle(
+                              fontSize: isCompact ? 24 : 28,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.6,
+                              color: Colors.black,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
           ),
         ),
       );
     }
 
-    String appBarTitleBase = isJapanese ? 'スケジュールカレンダー' : 'Schedule Calendar';
-    if (activeTab == 'todo') appBarTitleBase = isJapanese ? 'To-Do リスト' : 'To-Do List';
-    if (activeTab == 'payroll') appBarTitleBase = isJapanese ? '給与計算' : 'Payroll';
-    if (activeTab == 'settings') appBarTitleBase = isJapanese ? '設定' : 'Settings';
+    Widget buildAppleDayCell(
+      DateTime day, {
+      required bool isSelected,
+      required bool isToday,
+      required bool isOutside,
+    }) {
+      Color? circleColor;
+      Color textColor = isOutside ? const Color(0xFFC7C7CC) : Colors.black;
+      FontWeight weight = FontWeight.w400;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          widget.username.isNotEmpty ? '$appBarTitleBase (${widget.username})' : appBarTitleBase,
+      if (isSelected && isToday) {
+        circleColor = appleRed;
+        textColor = Colors.white;
+        weight = FontWeight.w700;
+      } else if (isSelected) {
+        circleColor = appleDarkCircle;
+        textColor = Colors.white;
+        weight = FontWeight.w700;
+      } else if (isToday) {
+        textColor = appleRed;
+        weight = FontWeight.w700;
+      }
+
+      return Container(
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: appleHairline, width: 0.5)),
         ),
-        actions: [
-          if (activeTab == 'calendar')
-            IconButton(
-              icon: Icon(_isSearching ? Icons.close : Icons.search),
-              onPressed: () async {
-                localQuery = '';
-                final RenderBox button = context.findRenderObject() as RenderBox;
-                final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-                final RelativeRect position = RelativeRect.fromRect(
-                  Rect.fromPoints(
-                    button.localToGlobal(Offset.zero, ancestor: overlay),
-                    button.localToGlobal(button.size.bottomRight(Offset.zero), ancestor: overlay),
+        alignment: Alignment.topCenter,
+        padding: const EdgeInsets.only(top: 4),
+        child: Container(
+          width: 32,
+          height: 32,
+          decoration: circleColor != null
+              ? BoxDecoration(color: circleColor, shape: BoxShape.circle)
+              : null,
+          alignment: Alignment.center,
+          child: Text(
+            '${day.day}',
+            style: TextStyle(fontSize: 16, fontWeight: weight, color: textColor),
+          ),
+        ),
+      );
+    }
+
+    Widget buildAppleMonthGrid(double availableWidth) {
+      final bool isCompact = availableWidth < 400;
+      const List<String> enWeekdays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+      const List<String> jaWeekdays = ['日', '月', '火', '水', '木', '金', '土'];
+
+      return Container(
+        color: appleBg,
+        padding: const EdgeInsets.only(bottom: 4),
+        child: TableCalendar<DailyEvent>(
+          firstDay: DateTime(2000, 1, 1),
+          lastDay: DateTime(2100, 12, 31),
+          focusedDay: _focusedDay,
+          calendarFormat: _calendarFormat,
+          headerVisible: false,
+          daysOfWeekHeight: 26,
+          rowHeight: isCompact ? 46 : 52,
+          selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+          eventLoader: (day) {
+            final dayStart = DateTime(day.year, day.month, day.day, 0, 0, 0);
+            final dayEnd = DateTime(day.year, day.month, day.day, 23, 59, 59);
+            return _events.where((event) {
+              if (event.isTodo) return isSameDay(event.displayEndTime, day);
+              return event.displayEffectiveTime.isBefore(dayEnd) &&
+                  event.displayEndTime.isAfter(dayStart);
+            }).toList();
+          },
+          onDaySelected: (selectedDay, focusedDay) {
+            setState(() {
+              _selectedDay = selectedDay;
+              _focusedDay = focusedDay;
+            });
+          },
+          onFormatChanged: (format) => setState(() => _calendarFormat = format),
+          onPageChanged: (focusedDay) {
+            setState(() => _focusedDay = focusedDay);
+            fetchEventsFromJava(targetYear: focusedDay.year, silent: true);
+          },
+          calendarBuilders: CalendarBuilders<DailyEvent>(
+            dowBuilder: (context, day) {
+              final int idx = day.weekday % 7;
+              final bool isWeekend = idx == 0 || idx == 6;
+              return Center(
+                child: Text(
+                  isJapanese ? jaWeekdays[idx] : enWeekdays[idx],
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: isWeekend ? appleSecondaryLabel : const Color(0xFF3C3C43),
                   ),
-                  Offset.zero & overlay.size,
-                );
-                await showMenu(
-                  context: context,
-                  position: position,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(24.0),
-                  ),
-                  items: [
-                    PopupMenuItem(
-                      value: 'search',
-                      enabled: false,
-                      child: StatefulBuilder(
-                        builder: (context, menuSetState) {
-                          final suggestions = _events.where((event) {
-                            if (localQuery.isEmpty) return false;
-                            if (isSearchByName) {
-                              return event.title.toLowerCase().startsWith(localQuery.toLowerCase());
-                            } else {
-                              return event.eventType.toLowerCase().startsWith(localQuery.toLowerCase());
-                            }
-                          }).toList();
-                          return SizedBox(
-                            width: 500,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: isSearchByName
-                                          ? TextField(
-                                              autofocus: true,
-                                              decoration: const InputDecoration(
-                                                hintText: 'Search event by title or type...',
-                                                isDense: true,
-                                                border: OutlineInputBorder(),
-                                              ),
-                                              onChanged: (value) {
-                                                menuSetState(() {
-                                                  localQuery = value;
-                                                });
-                                              },
-                                            )
-                                          : DropdownButtonFormField<String>(
-                                              initialValue: localQuery.isEmpty ? null : localQuery,
-                                              decoration: const InputDecoration(
-                                                hintText: 'Select a type',
-                                                isDense: true,
-                                                border: OutlineInputBorder(),
-                                              ),
-                                              items: _eventTypes.map((String typeName) {
-                                                return DropdownMenuItem<String>(
-                                                  value: typeName,
-                                                  child: Text(
-                                                    typeName,
-                                                    style: TextStyle(
-                                                      fontSize: 14,
-                                                      color: _getEventColor(typeName),
-                                                    ),
-                                                  ),
-                                                );
-                                              }).toList(),
-                                              onChanged: (String? newValue) {
-                                                if (newValue != null) {
-                                                  menuSetState(() {
-                                                    localQuery = newValue;
-                                                  });
-                                                }
-                                              },
-                                            ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            SizedBox(
-                                              width: 20,
-                                              height: 20,
-                                              child: Radio<bool>(
-                                                value: true,
-                                                groupValue: isSearchByName,
-                                                onChanged: (value) {
-                                                  if (value != null) {
-                                                    menuSetState(() {
-                                                      isSearchByName = value;
-                                                      localQuery = '';
-                                                    });
-                                                  }
-                                                },
-                                              ),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            const Text('Title', style: TextStyle(fontSize: 12, color: Colors.black)),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            SizedBox(
-                                              width: 20,
-                                              height: 20,
-                                              child: Radio<bool>(
-                                                value: false,
-                                                groupValue: isSearchByName,
-                                                onChanged: (value) {
-                                                  if (value != null) {
-                                                    menuSetState(() {
-                                                      isSearchByName = value;
-                                                      localQuery = '';
-                                                    });
-                                                  }
-                                                },
-                                              ),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            const Text('Type', style: TextStyle(fontSize: 12, color: Colors.black)),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                if (localQuery.isNotEmpty && suggestions.isNotEmpty) ...[
-                                  const Divider(height: 1),
-                                  Container(
-                                    constraints: const BoxConstraints(maxHeight: 150),
-                                    child: ListView.builder(
-                                      shrinkWrap: true,
-                                      itemCount: suggestions.length,
-                                      itemBuilder: (context, index) {
-                                        final event = suggestions[index];
-                                        return ListTile(
-                                          dense: true,
-                                          title: Row(
-                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                            children: [
-                                              Expanded(
-                                                child: Text(
-                                                  event.title,
-                                                  style: const TextStyle(fontSize: 14, color: Colors.black),
-                                                  overflow: TextOverflow.ellipsis,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 8),
-                                              Text(
-                                                DateFormat('yyyy-MM-dd').format(event.displayEffectiveTime),
-                                                style: const TextStyle(fontSize: 12, color: Colors.grey),
-                                              ),
-                                            ],
-                                          ),
-                                          subtitle: Text(
-                                            event.eventType,
-                                            style: TextStyle(fontSize: 14, color: _getEventColor(event.eventType)),
-                                          ),
-                                          onTap: () {
-                                            Navigator.pop(context);
-                                            setState(() {
-                                              _selectedDay = event.displayEffectiveTime;
-                                              _focusedDay = event.displayEffectiveTime;
-                                            });
-                                          },
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ],
-                                if (localQuery.isNotEmpty && suggestions.isEmpty) ...[
-                                  const Divider(height: 1),
-                                  const SizedBox(
-                                    height: 40,
-                                    child: Center(
-                                      child: Text(
-                                        'Cannot find event',
-                                        style: TextStyle(fontSize: 12, color: Colors.black),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                );
-              },
+                ),
+              );
+            },
+            defaultBuilder: (context, day, focusedDay) =>
+                buildAppleDayCell(day, isSelected: false, isToday: false, isOutside: false),
+            todayBuilder: (context, day, focusedDay) =>
+                buildAppleDayCell(day, isSelected: false, isToday: true, isOutside: false),
+            selectedBuilder: (context, day, focusedDay) => buildAppleDayCell(
+              day,
+              isSelected: true,
+              isToday: isSameDay(day, DateTime.now()),
+              isOutside: false,
             ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Logout',
-            onPressed: () async {
-              await _confirmAndLogout();
+            outsideBuilder: (context, day, focusedDay) =>
+                buildAppleDayCell(day, isSelected: false, isToday: false, isOutside: true),
+            markerBuilder: (context, date, events) {
+              if (events.isEmpty) return const SizedBox.shrink();
+              return Positioned(
+                bottom: 4,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: events.take(3).map((dailyEvent) {
+                    return Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 1.5),
+                      width: 5.5,
+                      height: 5.5,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _getEventColor(dailyEvent.eventType),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              );
             },
           ),
-        ],
-      ),
-      body: Stack(
-        children: [
-          if (activeTab == 'settings')
-            SettingsPage(
-              backendBaseUrl: kBackendBaseUrl,
-              authToken: widget.authToken,
-              currentSettings: _activeSettings,
-              onSettingsChanged: (updated) async {
-                setState(() {
-                  _activeSettings = updated;
-                  final updatedTabKeys = [
-                    'calendar',
-                    if (updated.enableTodoList) 'todo',
-                    if (updated.enablePayroll) 'payroll',
-                    'settings',
-                  ];
-                  final settingsIdx = updatedTabKeys.indexOf('settings');
-                  if (settingsIdx != -1) {
-                    _currentTabIndex = settingsIdx;
-                  }
-                });
-              },
-              onLogout: _confirmAndLogout,
-            )
-          else if (activeTab == 'todo')
-            TodoListPage(
-              backendBaseUrl: kBackendBaseUrl,
-              authToken: widget.authToken,
-              defaultTimezone: _defaultUserTimezone(),
-              onTodoChanged: () => fetchEventsFromJava(),
-            )
-          else if (activeTab == 'payroll')
-            const Center(child: Text('Payroll Page'))
-          else
-            Stack(
-              children: [
-                Column(
-                  children: [
-                    TableCalendar(
-                      firstDay: DateTime(2000, 1, 1),
-                      lastDay: DateTime(2100, 12, 31),
-                      focusedDay: _focusedDay,
-                      calendarFormat: _calendarFormat,
-                      selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-                      eventLoader: (day) {
-                        final dayStart = DateTime(day.year, day.month, day.day, 0, 0, 0);
-                        final dayEnd = DateTime(day.year, day.month, day.day, 23, 59, 59);
-                        return _events.where((event) {
-                          if (event.isTodo) return isSameDay(event.displayEndTime, day);
-                          return event.displayEffectiveTime.isBefore(dayEnd) &&
-                          event.displayEndTime.isAfter(dayStart);
-                        }).toList();
-                      },
-                      onDaySelected: (selectedDay, focusedDay) {
-                        setState(() {
-                          _selectedDay = selectedDay;
-                          _focusedDay = focusedDay;
-                        });
-                      },
-                      onFormatChanged: (format) {
-                        setState(() {
-                          _calendarFormat = format;
-                        });
-                      },
-                      onPageChanged: (focusedDay){
-                        _focusedDay = focusedDay;
-                        fetchEventsFromJava(targetYear: focusedDay.year, silent:true);
-                      },
-                      calendarBuilders: CalendarBuilders(
-                        markerBuilder: (context, date, events) {
-                          if (events.isEmpty) return const SizedBox();
-                          return Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: events.take(3).map((event) {
-                              final dailyEvent = event as DailyEvent;
-                              return Container(
-                                margin: const EdgeInsets.symmetric(horizontal: 0.5),
-                                width: 7,
-                                height: 7,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: _getEventColor(dailyEvent.eventType),
-                                ),
-                              );
-                            }).toList(),
-                          );
-                        },
-                      ),
-                      headerStyle: const HeaderStyle(
-                        formatButtonVisible: false,
-                        titleCentered: true,
-                      ),
-                      onHeaderTapped: (focusedDay) async {
-                        final DateTime? picked = await showDatePicker(
-                          context: context,
-                          initialDate: focusedDay,
-                          firstDate: DateTime(2000, 1, 1),
-                          lastDate: DateTime(2100, 12, 31),
-                        );
-                        if (picked != null) {
-                          setState(() {
-                            _focusedDay = picked;
-                            _selectedDay = picked;
-                          });
-                          await fetchEventsFromJava(targetYear: picked.year);
-                        }
-                      },
-                    ),
+        ),
+      );
+    }
 
-                    Expanded(
-                      child: ListView.builder(
-                        padding: const EdgeInsets.only(bottom: 160),
-                        itemCount: _selectedEvents.length,
-                        itemBuilder: (context, index) {
-                          final event = _selectedEvents[index];
-                          final bool isDueToday = event.isTodo && isSameDay(event.displayEndTime, DateTime.now());
-                          final bool isHighPriorityTodo = event.isTodo &&
-                              event.id != null &&
-                              _highPriorityTodoEventIds.contains(event.id);
-                          return ListTile(
-                            leading: Icon(
-                              event.isTodo
-                                ? (event.isComplete ? Icons.check_circle : Icons.radio_button_unchecked)
-                                : Icons.event,
-                              color: _getEventColor(event.eventType),
+    Widget buildSelectedDayAgenda() {
+      final bool isSelectedToday = isSameDay(_selectedDay, DateTime.now());
+      final String dayHeader = isJapanese
+          ? '${DateFormat('M月d日').format(_selectedDay)}${isSelectedToday ? ' ・ 今日' : ''}'
+          : '${DateFormat('EEEE, MMM d').format(_selectedDay).toUpperCase()}${isSelectedToday ? ' • TODAY' : ''}';
+
+      return Container(
+        color: appleGroupedBg,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+              decoration: const BoxDecoration(
+                color: appleGroupedBg,
+                border: Border(
+                  top: BorderSide(color: appleHairline, width: 0.5),
+                  bottom: BorderSide(color: appleHairline, width: 0.5),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    dayHeader,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.4,
+                      color: isSelectedToday ? appleRed : appleSecondaryLabel,
+                    ),
+                  ),
+                  if (_selectedEvents.isNotEmpty)
+                    Text(
+                      isJapanese
+                          ? '${_selectedEvents.length}件'
+                          : '${_selectedEvents.length} ${_selectedEvents.length == 1 ? 'event' : 'events'}',
+                      style: const TextStyle(fontSize: 12, color: appleSecondaryLabel),
+                    ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _selectedEvents.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            isJapanese ? '予定なし' : 'No Events',
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w500,
+                              color: appleSecondaryLabel,
                             ),
-                            title: Text(
-                              event.title,
-                              style: TextStyle(
-                                decoration: (event.isTodo && event.isComplete)
-                                  ? TextDecoration.lineThrough
-                                  : TextDecoration.none,
-                              ),
+                          ),
+                          const SizedBox(height: 6),
+                          CupertinoButton(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            onPressed: globalLoading.value
+                                ? null
+                                : () => _showAddEventDialog(context, _selectedDay),
+                            child: Text(
+                              isJapanese ? '+ 予定を追加' : '+ New Event',
+                              style: const TextStyle(fontSize: 14, color: appleRed),
                             ),
-                            subtitle: Text(
-                              event.isTodo
-                                ? (isDueToday
-                                    ? (event.isAllDay
-                                        ? "Due: TODAY"
-                                        : "Due: TODAY, ${DateFormat('HH:mm').format(event.displayEndTime)} (${event.timezone.split('/').last})")
-                                    : (event.isAllDay
-                                        ? "Due: ${DateFormat('MMM d').format(event.displayEndTime)}"
-                                        : "Due: ${DateFormat('MMM d, HH:mm').format(event.displayEndTime)} (${event.timezone.split('/').last})"))
-                                : (event.isAllDay
-                                    ? "All-Day"
-                                    : "${DateFormat('MMM d, HH:mm').format(event.displayEffectiveTime)}(${event.startTimezone.split('/').last}) - ${DateFormat('MMM d, HH:mm').format(event.displayEndTime)}(${event.endTimezone.split('/').last})"),
-                            ),
-                            trailing: isHighPriorityTodo
-                                ? Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                    decoration: BoxDecoration(
-                                      color: Colors.redAccent.withOpacity(0.15),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
-                                    ),
-                                    child: const Text(
-                                      'HIGH',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.redAccent,
-                                      ),
-                                    ),
-                                  )
-                                : null,
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 100),
+                      itemCount: _selectedEvents.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final event = _selectedEvents[index];
+                        final Color eventColor = _getEventColor(event.eventType);
+                        final bool isHighPriorityTodo = event.isTodo &&
+                            event.id != null &&
+                            _highPriorityTodoEventIds.contains(event.id);
+
+                        final String primaryTime = event.isTodo
+                            ? (event.isAllDay
+                                ? (isJapanese ? '期限' : 'Due')
+                                : DateFormat('HH:mm').format(event.displayEndTime))
+                            : (event.isAllDay
+                                ? (isJapanese ? '終日' : 'All-day')
+                                : DateFormat('HH:mm').format(event.displayEffectiveTime));
+
+                        final String secondaryTime = event.isTodo
+                            ? (event.isAllDay ? 'To-Do' : event.timezone.split('/').last)
+                            : (event.isAllDay
+                                ? event.eventType
+                                : DateFormat('HH:mm').format(event.displayEndTime));
+
+                        return Material(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(12),
                             onTap: () {
                               Navigator.push(
                                 context,
@@ -1666,6 +2066,7 @@ class _CalendarPageState extends State<CalendarPage> {
                                   builder: (context) => EventDetailPage(
                                     event: event,
                                     authToken: widget.authToken,
+                                    isJapanese: isJapanese,
                                     onDelete: (id) => _deleteEvent(id),
                                     onUpdate: () => fetchEventsFromJava(),
                                     onEdit: (currentEventType) async {
@@ -1681,55 +2082,300 @@ class _CalendarPageState extends State<CalendarPage> {
                                     },
                                     allEventTypes: _eventTypes,
                                     onEventTypeChanged: (newType) {
-                                      setState(() {
-                                        _eventType = newType;
-                                      });
+                                      setState(() => _eventType = newType);
                                     },
                                   ),
                                 ),
                               );
                             },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                              child: Row(
+                                children: [
+                                  // Apple Calendar Left Vertical Color Bar
+                                  Container(
+                                    width: 4,
+                                    height: 36,
+                                    decoration: BoxDecoration(
+                                      color: eventColor,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            if (event.isTodo) ...[
+                                              Icon(
+                                                event.isComplete
+                                                    ? CupertinoIcons.checkmark_circle_fill
+                                                    : CupertinoIcons.circle,
+                                                size: 16,
+                                                color: eventColor,
+                                              ),
+                                              const SizedBox(width: 6),
+                                            ],
+                                            Expanded(
+                                              child: Text(
+                                                event.title,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: (event.isTodo && event.isComplete)
+                                                      ? appleSecondaryLabel
+                                                      : Colors.black,
+                                                  decoration: (event.isTodo && event.isComplete)
+                                                      ? TextDecoration.lineThrough
+                                                      : TextDecoration.none,
+                                                ),
+                                              ),
+                                            ),
+                                            if (isHighPriorityTodo) ...[
+                                              const SizedBox(width: 6),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(
+                                                  horizontal: 6,
+                                                  vertical: 2,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: appleRed.withOpacity(0.12),
+                                                  borderRadius: BorderRadius.circular(6),
+                                                ),
+                                                child: const Text(
+                                                  'HIGH',
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: appleRed,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          event.description.isNotEmpty
+                                              ? event.description
+                                              : event.eventType,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            color: appleSecondaryLabel,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        primaryTime,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        secondaryTime,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: appleSecondaryLabel,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    Widget buildAppleBottomBar() {
+      return ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF9F9FB).withOpacity(0.92),
+              border: const Border(top: BorderSide(color: appleHairline, width: 0.5)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: SizedBox(
+                height: 54,
+                child: Row(
+                  children: [
+                    if (activeTab == 'calendar')
+                      Padding(
+                        padding: const EdgeInsets.only(left: 12),
+                        child: CupertinoButton(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          minSize: 32,
+                          onPressed: () async {
+                            final now = DateTime.now();
+                            final bool yearChanged = now.year != _focusedDay.year;
+                            setState(() {
+                              _focusedDay = now;
+                              _selectedDay = now;
+                            });
+                            if (yearChanged) {
+                              await fetchEventsFromJava(targetYear: now.year);
+                            }
+                          },
+                          child: Text(
+                            isJapanese ? '今日' : 'Today',
+                            style: const TextStyle(
+                              color: appleRed,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                    Expanded(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: List.generate(tabKeys.length, (index) {
+                          final key = tabKeys[index];
+                          final bool selected = index == _currentTabIndex;
+                          late IconData icon;
+                          late String label;
+                          switch (key) {
+                            case 'todo':
+                              icon = selected
+                                  ? CupertinoIcons.checkmark_circle_fill
+                                  : CupertinoIcons.checkmark_circle;
+                              label = 'To-Do';
+                              break;
+                            case 'payroll':
+                              icon = selected
+                                  ? CupertinoIcons.money_dollar_circle_fill
+                                  : CupertinoIcons.money_dollar_circle;
+                              label = isJapanese ? '給与' : 'Payroll';
+                              break;
+                            case 'settings':
+                              icon = selected ? CupertinoIcons.gear_solid : CupertinoIcons.gear;
+                              label = isJapanese ? '設定' : 'Settings';
+                              break;
+                            case 'calendar':
+                            default:
+                              icon = selected ? CupertinoIcons.calendar_today : CupertinoIcons.calendar;
+                              label = isJapanese ? 'カレンダー' : 'Calendar';
+                              break;
+                          }
+                          return GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () async {
+                              setState(() => _currentTabIndex = index);
+                              if (key == 'calendar') {
+                                await fetchEventsFromJava();
+                              }
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    icon,
+                                    size: 22,
+                                    color: selected ? appleRed : appleSecondaryLabel,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    label,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                                      color: selected ? appleRed : appleSecondaryLabel,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           );
-                        },
+                        }),
                       ),
                     ),
                   ],
                 ),
-                Positioned(
-                  left: 16,
-                  right: 16,
-                  bottom: 96,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      FloatingActionButton.extended(
-                        onPressed: () {
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Scaffold(
+          backgroundColor: appleGroupedBg,
+          body: Column(
+            children: [
+              buildAppleTopHeader(constraints.maxWidth),
+              Expanded(
+                child: activeTab == 'settings'
+                    ? SettingsPage(
+                        backendBaseUrl: kBackendBaseUrl,
+                        authToken: widget.authToken,
+                        currentSettings: _activeSettings,
+                        onSettingsChanged: (updated) async {
                           setState(() {
-                            _focusedDay = DateTime.now();
-                            _selectedDay = DateTime.now();
+                            _activeSettings = updated;
+                            final updatedTabKeys = [
+                              'calendar',
+                              if (updated.enableTodoList) 'todo',
+                              if (updated.enablePayroll) 'payroll',
+                              'settings',
+                            ];
+                            final settingsIdx = updatedTabKeys.indexOf('settings');
+                            if (settingsIdx != -1) {
+                              _currentTabIndex = settingsIdx;
+                            }
                           });
                         },
-                        label: const Text("TODAY"),
-                        icon: const Icon(Icons.today),
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.blue,
-                      ),
-                      FloatingActionButton(
-                        onPressed: globalLoading.value ? null : () => _showAddEventDialog(context, _selectedDay),
-                        child: const Icon(Icons.add, color: Colors.black),
-                      ),
-                    ],
-                  ),
-                  
-                ),
-              ],
-            ),
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: buildAppleDockBar(),
-            ),
-        ],
-      ),
+                        onLogout: _confirmAndLogout,
+                      )
+                    : activeTab == 'todo'
+                        ? TodoListPage(
+                            backendBaseUrl: kBackendBaseUrl,
+                            authToken: widget.authToken,
+                            defaultTimezone: _defaultUserTimezone(),
+                            isJapanese: isJapanese,
+                            onTodoChanged: () => fetchEventsFromJava(),
+                          )
+                        : activeTab == 'payroll'
+                            ? const Center(child: Text('Payroll Page'))
+                            : Column(
+                                children: [
+                                  buildAppleMonthGrid(constraints.maxWidth),
+                                  Expanded(child: buildSelectedDayAgenda()),
+                                ],
+                            ),
+              ),
+            ],
+          ),
+          bottomNavigationBar: buildAppleBottomBar(),
+        );
+      },
     );
   }
 }
