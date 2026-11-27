@@ -35,8 +35,8 @@ class EventDetailPage extends StatefulWidget {
 class _EventDetailPageState extends State<EventDetailPage> {
   late String _eventType;
   bool _isUpdatedFromOutSide = false;
-  //static const String _baseUrl = 'https://calendar-backend-qhny.onrender.com';
-  static const String _baseUrl = 'http://localhost:8080';
+  static const String _baseUrl = 'https://calendar-backend-qhny.onrender.com';
+  //static const String _baseUrl = 'http://localhost:8080';
   Map<String, String> _headers({bool json = false}) {
     final headers = <String, String>{
       'Authorization': 'Bearer ${widget.authToken}',

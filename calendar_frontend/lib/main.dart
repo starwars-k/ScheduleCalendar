@@ -305,578 +305,818 @@ class _CalendarPageState extends State<CalendarPage> {
     } else {
       _repeatEndDate = initialDate.add(const Duration(days: 1));
     }
-    final ScrollController modalScrollController = ScrollController();
+    final bool isJapanese = _activeSettings.language == 'ja';
+    String? activePicker; // 'startDate', 'startTime', 'startTz', 'endDate', 'endTime', 'endTz', 'repeatEnd'
+    String repeatDisplayLabel(String value) {
+      if (isJapanese) {
+        switch (value) {
+          case 'Daily':
+            return '毎日';
+          case 'Weekly':
+            return '毎週';
+          case 'Biweekly':
+            return '2週間ごと';
+          case 'Monthly':
+            return '毎月';
+          case 'Yearly':
+            return '毎年';
+          case 'None':
+          default:
+            return 'しない';
+        }
+      }
+      switch (value) {
+        case 'Daily':
+          return 'Every Day';
+        case 'Weekly':
+          return 'Every Week';
+        case 'Biweekly':
+          return 'Every 2 Weeks';
+        case 'Monthly':
+          return 'Every Month';
+        case 'Yearly':
+          return 'Every Year';
+        case 'None':
+        default:
+          return 'Never';
+      }
+    }
+
     return await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: false,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20.0)),
-      ),
+      backgroundColor: Colors.transparent,
+      constraints: const BoxConstraints(maxWidth: 600),
       builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-          ),
-          child: SizedBox(
-            height: MediaQuery.of(context).size.height * 0.95,
-            child: Scaffold(
-              backgroundColor: Colors.transparent,
-              appBar: AppBar(
-                title: Text(isEditing ? "Edit Event" : "Add New Event"),
-                automaticallyImplyLeading: false,
-                backgroundColor: Colors.transparent,
-                elevation: 0,
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context, false),
+        builder: (context, setDialogState) {
+          void togglePicker(String key) {
+            setDialogState(() {
+              activePicker = (activePicker == key) ? null : key;
+            });
+          }
+
+          Future<void> handleSubmit() async {
+            if (_titleController.text.trim().isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    isJapanese ? 'タイトルを入力してください' : 'Event title cannot be empty!',
+                  ),
+                ),
+              );
+              return;
+            }
+            if (isEditing && eventToEdit.id != null) {
+              globalLoading.value = true;
+              final bool success = await _updateEvent(eventToEdit.id!, _startTime, _endTime);
+              if (success && context.mounted) {
+                Navigator.pop(context, true);
+              }
+            } else {
+              await _makeNewEvents(_startTime, _endTime);
+            }
+          }
+
+          Widget buildGroupedCard(List<Widget> children) {
+            return Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (int i = 0; i < children.length; i++) ...[
+                    children[i],
+                    if (i < children.length - 1)
+                      const Divider(
+                        height: 1,
+                        thickness: 0.5,
+                        indent: 16,
+                        color: Color(0xFFE5E5EA),
+                      ),
+                  ],
+                ],
+              ),
+            );
+          }
+
+          Widget buildApplePill({
+            required String label,
+            required bool isActive,
+            required VoidCallback onTap,
+            IconData? icon,
+          }) {
+            return GestureDetector(
+              onTap: onTap,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isActive
+                      ? CupertinoColors.activeBlue.withOpacity(0.14)
+                      : const Color(0xFFEFEFF4),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (icon != null) ...[
+                      Icon(
+                        icon,
+                        size: 13,
+                        color: isActive ? CupertinoColors.activeBlue : Colors.black87,
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: isActive ? CupertinoColors.activeBlue : Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          Widget buildResponsivePickerRow({
+            required String label,
+            required List<Widget> pills,
+            required bool isVeryNarrow,
+          }) {
+            if (isVeryNarrow) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: const TextStyle(fontSize: 15, color: Colors.black)),
+                    const SizedBox(height: 8),
+                    Wrap(spacing: 6, runSpacing: 6, children: pills),
+                  ],
+                ),
+              );
+            }
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                children: [
+                  Text(label, style: const TextStyle(fontSize: 15, color: Colors.black)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: pills,
+                    ),
                   ),
                 ],
               ),
-              body: Scrollbar(
-                controller: modalScrollController,
-                thumbVisibility: true,
-                trackVisibility: true,
-                child: SingleChildScrollView(
-                  controller: modalScrollController,
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.only(bottom: 40.0, left: 20.0, right: 20.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextField(
-                        controller: _titleController,
-                        decoration: const InputDecoration(hintText: "Event Title"),
-                      ),
-                      const SizedBox(height: 10),
-                      if (_activeSettings.enableTodoList)
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text("Add to To-Do List"),
-                          subtitle: Text(
-                            _isTodo
-                                ? "Uses Due Date / Due Time and syncs with To-Do List"
-                                : "Standard calendar event",
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          value: _isTodo,
-                          onChanged: (bool value) {
-                            setDialogState(() {
-                              _isTodo = value;
-                              if (_isTodo) {
-                                _isRepeating = false;
-                                _repeatType = 'None';
-                                _showStartTimezonePicker = false;
-                                _setDueTime = false;
-                                _isAllDay = true;
-                                _endTime = DateTime(
-                                  _endTime.year,
-                                  _endTime.month,
-                                  _endTime.day,
-                                  23,
-                                  59,
-                                  59,
-                                );
-                              } else {
-                                _setDueTime = false;
-                                _isAllDay = false;
-                              }
-                            });
-                          },
-                        ),
-                      if (!_isTodo)
-                        Row(
-                          children: [
-                            Checkbox(
-                              value: _isAllDay,
-                              onChanged: (bool? value) {
-                                setDialogState(() {
-                                  _isAllDay = value ?? false;
-                                  if (_isAllDay) {
-                                    _startTime = DateTime(
-                                      _startTime.year,
-                                      _startTime.month,
-                                      _startTime.day,
-                                      0,
-                                      0,
-                                      0,
-                                    );
-                                    _endTime = DateTime(
-                                      _endTime.year,
-                                      _endTime.month,
-                                      _endTime.day,
-                                      23,
-                                      59,
-                                      59,
-                                    );
-                                  }
-                                });
-                              },
-                            ),
-                            const Text("All-Day Event"),
-                          ],
-                        ),
-                      if (_isTodo)
-                        Row(
-                          children: [
-                            Checkbox(
-                              value: _setDueTime,
-                              onChanged: (bool? value) {
-                                setDialogState(() {
-                                  _setDueTime = value ?? false;
-                                  _isAllDay = !_setDueTime;
-                                  if (!_setDueTime) {
-                                    _endTime = DateTime(
-                                      _endTime.year,
-                                      _endTime.month,
-                                      _endTime.day,
-                                      23,
-                                      59,
-                                      59,
-                                    );
-                                  }
-                                });
-                              },
-                            ),
-                            const Text("Set Due Time"),
-                          ],
-                        ),
-                      if (!_isTodo)
-                        ListTile(
-                          title: Text(_isAllDay ? "Start Date" : "Start Time"),
-                          trailing: Wrap(
-                            spacing: 8,
-                            runSpacing: 6,
-                            crossAxisAlignment: WrapCrossAlignment.center,
+            );
+          }
+
+          Widget buildInlineWheelDatePicker({
+            required String pickerKey,
+            required DateTime currentDate,
+            required void Function(DateTime picked) onDateChanged,
+          }) {
+            return SizedBox(
+              height: 180,
+              child: CupertinoDatePicker(
+                key: ValueKey(pickerKey),
+                mode: CupertinoDatePickerMode.date,
+                initialDateTime: DateTime(currentDate.year, currentDate.month, currentDate.day),
+                minimumDate: DateTime(2000, 1, 1),
+                maximumDate: DateTime(2100, 12, 31),
+                onDateTimeChanged: onDateChanged,
+              ),
+            );
+          }
+
+          Widget buildInlineWheelTimePicker({
+            required String pickerKey,
+            required DateTime currentTime,
+            required void Function(DateTime picked) onTimeChanged,
+          }) {
+            return SizedBox(
+              height: 180,
+              child: CupertinoDatePicker(
+                key: ValueKey(pickerKey),
+                mode: CupertinoDatePickerMode.time,
+                initialDateTime: currentTime,
+                use24hFormat: true,
+                onDateTimeChanged: onTimeChanged,
+              ),
+            );
+          }
+
+          final bool canSubmit = _titleController.text.trim().isNotEmpty;
+          final String datePattern = isJapanese ? 'yyyy/MM/dd' : 'MMM d, yyyy';
+
+          return Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              child: Container(
+                height: MediaQuery.of(context).size.height * 0.94,
+                color: const Color(0xFFF2F2F7),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final bool isVeryNarrow = constraints.maxWidth < 365;
+                    final double outerPadding = isVeryNarrow ? 12.0 : 16.0;
+
+                    return Column(
+                      children: [
+                        // Apple Calendar Top Drag Handle + Navigation Bar
+                        Container(
+                          color: const Color(0xFFF9F9FB),
+                          padding: const EdgeInsets.only(top: 8, bottom: 4, left: 8, right: 8),
+                          child: Column(
                             children: [
-                              TextButton.icon(
-                                label: Text(
-                                  DateFormat('yyyy-MM-dd').format(_startTime),
-                                  style: const TextStyle(color: Colors.black),
+                              Container(
+                                width: 36,
+                                height: 5,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFC7C7CC),
+                                  borderRadius: BorderRadius.circular(3),
                                 ),
-                                style: TextButton.styleFrom(
-                                  backgroundColor: CupertinoColors.extraLightBackgroundGray,
-                                  shape: const StadiumBorder(),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                                ),
-                                onPressed: () async {
-                                  final DateTime? pickedDate = await showDatePicker(
-                                    context: context,
-                                    initialDate: _startTime,
-                                    firstDate: DateTime(2000),
-                                    lastDate: DateTime(2100),
-                                  );
-                                  if (pickedDate != null) {
-                                    setDialogState(() {
-                                      _startTime = DateTime(
-                                        pickedDate.year,
-                                        pickedDate.month,
-                                        pickedDate.day,
-                                        _isAllDay ? 0 : _startTime.hour,
-                                        _isAllDay ? 0 : _startTime.minute,
-                                      );
-                                      if (_endTime.isBefore(_startTime)) {
-                                        _endTime = _isAllDay
-                                            ? DateTime(pickedDate.year, pickedDate.month, pickedDate.day, 23, 59, 59)
-                                            : _startTime.add(const Duration(hours: 1));
-                                      }
-                                    });
-                                  }
-                                },
                               ),
-                              if (!_isAllDay)
-                                TextButton(
-                                  style: TextButton.styleFrom(
-                                    backgroundColor: CupertinoColors.extraLightBackgroundGray,
-                                    shape: const StadiumBorder(),
-                                    padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  CupertinoButton(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                                    onPressed: () => Navigator.pop(context, false),
+                                    child: Text(
+                                      isJapanese ? 'キャンセル' : 'Cancel',
+                                      style: const TextStyle(
+                                        color: CupertinoColors.activeBlue,
+                                        fontSize: 16,
+                                      ),
+                                    ),
                                   ),
-                                  onPressed: () async {
-                                    final TimeOfDay? pickedTime = await _showAppleStyleTimePicker(
-                                      context: context,
-                                      initialTime: _startTime,
-                                    );
-                                    if (pickedTime != null) {
-                                      setDialogState(() {
-                                        _startTime = DateTime(
-                                          _startTime.year,
-                                          _startTime.month,
-                                          _startTime.day,
-                                          pickedTime.hour,
-                                          pickedTime.minute,
-                                        );
-                                        if (_endTime.isBefore(_startTime)) {
-                                          _endTime = _startTime.add(const Duration(hours: 1));
-                                        }
-                                      });
-                                    }
-                                  },
-                                  child: Text(
-                                    DateFormat('HH:mm').format(_startTime),
-                                    style: const TextStyle(color: Colors.black),
+                                  Text(
+                                    isEditing
+                                        ? (isJapanese ? '予定を編集' : 'Edit Event')
+                                        : (isJapanese ? '新規予定' : 'New Event'),
+                                    style: const TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.black,
+                                    ),
                                   ),
-                                ),
-                              TextButton.icon(
-                                icon: const Icon(Icons.public, size: 16, color: Colors.black),
-                                label: Text(
-                                  _startTimezone.split('/').last,
-                                  style: const TextStyle(color: Colors.black, fontSize: 12),
-                                ),
-                                style: TextButton.styleFrom(
-                                  backgroundColor: _showStartTimezonePicker
-                                      ? Colors.blue.shade100
-                                      : CupertinoColors.extraLightBackgroundGray,
-                                  shape: const StadiumBorder(),
-                                  padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
-                                ),
-                                onPressed: () {
-                                  setDialogState(() {
-                                    _showStartTimezonePicker = !_showStartTimezonePicker;
-                                    if (_showStartTimezonePicker) {
-                                      _showEndTimezonePicker = false;
-                                    }
-                                  });
-                                },
+                                  CupertinoButton(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                                    onPressed: canSubmit ? handleSubmit : null,
+                                    child: Text(
+                                      isEditing
+                                          ? (isJapanese ? '更新' : 'Update')
+                                          : (isJapanese ? '追加' : 'Add'),
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                        color: canSubmit
+                                            ? CupertinoColors.activeBlue
+                                            : CupertinoColors.inactiveGray,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
                         ),
-                      if (!_isTodo && _showStartTimezonePicker)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6, bottom: 10),
-                          child: DropdownButtonFormField<String>(
-                            initialValue: _startTimezone,
-                            decoration: const InputDecoration(
-                              labelText: "Start Timezone",
-                              prefixIcon: Icon(Icons.public),
-                              border: OutlineInputBorder(),
+                        const Divider(height: 1, thickness: 0.5, color: Color(0xFFD1D1D6)),
+
+                        // Scrollable Grouped Cards
+                        Expanded(
+                          child: SingleChildScrollView(
+                            physics: const BouncingScrollPhysics(),
+                            padding: EdgeInsets.fromLTRB(outerPadding, 16, outerPadding, 40),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                // Card 1: Title & Notes (Apple Calendar style)
+                                buildGroupedCard([
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                    child: TextField(
+                                      controller: _titleController,
+                                      style: const TextStyle(fontSize: 16, color: Colors.black),
+                                      decoration: InputDecoration(
+                                        hintText: isJapanese ? 'タイトル' : 'Title',
+                                        hintStyle: const TextStyle(color: CupertinoColors.placeholderText),
+                                        border: InputBorder.none,
+                                      ),
+                                      onChanged: (_) => setDialogState(() {}),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                    child: TextField(
+                                      controller: _memoController,
+                                      maxLines: 3,
+                                      minLines: 1,
+                                      style: const TextStyle(fontSize: 15, color: Colors.black87),
+                                      decoration: InputDecoration(
+                                        hintText: isJapanese ? 'メモ' : 'Notes',
+                                        hintStyle: const TextStyle(color: CupertinoColors.placeholderText),
+                                        border: InputBorder.none,
+                                      ),
+                                    ),
+                                  ),
+                                ]),
+                                const SizedBox(height: 16),
+
+                                // Card 2: To-Do List Sync Toggle (if enabled)
+                                if (_activeSettings.enableTodoList) ...[
+                                  buildGroupedCard([
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  isJapanese ? 'To-Do リストに追加' : 'Add to To-Do List',
+                                                  style: const TextStyle(fontSize: 15, color: Colors.black),
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  _isTodo
+                                                      ? (isJapanese
+                                                          ? '期限日・時刻のみ使用し To-Do と同期'
+                                                          : 'Uses Due Date / Time & syncs with To-Do')
+                                                      : (isJapanese ? '通常のカレンダー予定' : 'Standard calendar event'),
+                                                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          CupertinoSwitch(
+                                            value: _isTodo,
+                                            onChanged: (bool value) {
+                                              setDialogState(() {
+                                                _isTodo = value;
+                                                activePicker = null;
+                                                if (_isTodo) {
+                                                  _isRepeating = false;
+                                                  _repeatType = 'None';
+                                                  _setDueTime = false;
+                                                  _isAllDay = true;
+                                                  _endTime = DateTime(
+                                                    _endTime.year,
+                                                    _endTime.month,
+                                                    _endTime.day,
+                                                    23,
+                                                    59,
+                                                    59,
+                                                  );
+                                                } else {
+                                                  _setDueTime = false;
+                                                  _isAllDay = false;
+                                                }
+                                              });
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ]),
+                                  const SizedBox(height: 16),
+                                ],
+
+                                // Card 3: All-day, Starts, Ends / Due Date & Timezone
+                                buildGroupedCard([
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          _isTodo
+                                              ? (isJapanese ? '期限時刻を設定' : 'Set Due Time')
+                                              : (isJapanese ? '終日' : 'All-day'),
+                                          style: const TextStyle(fontSize: 15, color: Colors.black),
+                                        ),
+                                        CupertinoSwitch(
+                                          value: _isTodo ? _setDueTime : _isAllDay,
+                                          onChanged: (bool value) {
+                                            setDialogState(() {
+                                              activePicker = null;
+                                              if (_isTodo) {
+                                                _setDueTime = value;
+                                                _isAllDay = !_setDueTime;
+                                                if (!_setDueTime) {
+                                                  _endTime = DateTime(
+                                                    _endTime.year,
+                                                    _endTime.month,
+                                                    _endTime.day,
+                                                    23,
+                                                    59,
+                                                    59,
+                                                  );
+                                                }
+                                              } else {
+                                                _isAllDay = value;
+                                                if (_isAllDay) {
+                                                  _startTime = DateTime(
+                                                    _startTime.year,
+                                                    _startTime.month,
+                                                    _startTime.day,
+                                                    0,
+                                                    0,
+                                                    0,
+                                                  );
+                                                  _endTime = DateTime(
+                                                    _endTime.year,
+                                                    _endTime.month,
+                                                    _endTime.day,
+                                                    23,
+                                                    59,
+                                                    59,
+                                                  );
+                                                }
+                                              }
+                                            });
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+
+                                  // Starts Row (Standard Event)
+                                  if (!_isTodo) ...[
+                                    buildResponsivePickerRow(
+                                      label: isJapanese ? '開始' : 'Starts',
+                                      isVeryNarrow: isVeryNarrow,
+                                      pills: [
+                                        buildApplePill(
+                                          label: DateFormat(datePattern).format(_startTime),
+                                          isActive: activePicker == 'startDate',
+                                          onTap: () => togglePicker('startDate'),
+                                        ),
+                                        if (!_isAllDay)
+                                          buildApplePill(
+                                            label: DateFormat('HH:mm').format(_startTime),
+                                            isActive: activePicker == 'startTime',
+                                            onTap: () => togglePicker('startTime'),
+                                          ),
+                                        buildApplePill(
+                                          icon: Icons.public,
+                                          label: _startTimezone.split('/').last,
+                                          isActive: activePicker == 'startTz',
+                                          onTap: () => togglePicker('startTz'),
+                                        ),
+                                      ],
+                                    ),
+                                    if (activePicker == 'startDate')
+                                      buildInlineWheelDatePicker(
+                                        pickerKey: 'startDate',
+                                        currentDate: _startTime,
+                                        onDateChanged: (picked) {
+                                          setDialogState(() {
+                                            _startTime = DateTime(
+                                              picked.year,
+                                              picked.month,
+                                              picked.day,
+                                              _isAllDay ? 0 : _startTime.hour,
+                                              _isAllDay ? 0 : _startTime.minute,
+                                            );
+                                            if (_endTime.isBefore(_startTime)) {
+                                              _endTime = _isAllDay
+                                                  ? DateTime(picked.year, picked.month, picked.day, 23, 59, 59)
+                                                  : _startTime.add(const Duration(hours: 1));
+                                            }
+                                          });
+                                        },
+                                      ),
+                                    if (activePicker == 'startTime' && !_isAllDay)
+                                      buildInlineWheelTimePicker(
+                                        pickerKey: 'startTime',
+                                        currentTime: _startTime,
+                                        onTimeChanged: (picked) {
+                                          setDialogState(() {
+                                            _startTime = DateTime(
+                                              _startTime.year,
+                                              _startTime.month,
+                                              _startTime.day,
+                                              picked.hour,
+                                              picked.minute,
+                                            );
+                                            if (_endTime.isBefore(_startTime)) {
+                                              _endTime = _startTime.add(const Duration(hours: 1));
+                                            }
+                                          });
+                                        },
+                                      ),
+                                    if (activePicker == 'startTz')
+                                      Padding(
+                                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                                        child: DropdownButtonFormField<String>(
+                                          initialValue: _startTimezone,
+                                          decoration: InputDecoration(
+                                            labelText: isJapanese ? '開始タイムゾーン' : 'Start Timezone',
+                                            prefixIcon: const Icon(Icons.public),
+                                            border: const OutlineInputBorder(),
+                                            isDense: true,
+                                          ),
+                                          items: kSupportedTimezones.map((tz) {
+                                            return DropdownMenuItem(value: tz, child: Text(tz));
+                                          }).toList(),
+                                          onChanged: (val) {
+                                            if (val != null) {
+                                              setDialogState(() {
+                                                _startTimezone = val;
+                                                activePicker = null;
+                                              });
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                  ],
+
+                                  // Ends / Due Row
+                                  buildResponsivePickerRow(
+                                    label: _isTodo
+                                        ? (isJapanese ? '期限' : 'Due')
+                                        : (isJapanese ? '終了' : 'Ends'),
+                                    isVeryNarrow: isVeryNarrow,
+                                    pills: [
+                                      buildApplePill(
+                                        label: DateFormat(datePattern).format(_endTime),
+                                        isActive: activePicker == 'endDate',
+                                        onTap: () => togglePicker('endDate'),
+                                      ),
+                                      if ((!_isTodo && !_isAllDay) || (_isTodo && _setDueTime))
+                                        buildApplePill(
+                                          label: DateFormat('HH:mm').format(_endTime),
+                                          isActive: activePicker == 'endTime',
+                                          onTap: () => togglePicker('endTime'),
+                                        ),
+                                      buildApplePill(
+                                        icon: Icons.public,
+                                        label: _endTimezone.split('/').last,
+                                        isActive: activePicker == 'endTz',
+                                        onTap: () => togglePicker('endTz'),
+                                      ),
+                                    ],
+                                  ),
+                                  if (activePicker == 'endDate')
+                                    buildInlineWheelDatePicker(
+                                      pickerKey: 'endDate',
+                                      currentDate: _endTime,
+                                      onDateChanged: (picked) {
+                                        setDialogState(() {
+                                          final bool keepAllDay = _isTodo ? !_setDueTime : _isAllDay;
+                                          _endTime = DateTime(
+                                            picked.year,
+                                            picked.month,
+                                            picked.day,
+                                            keepAllDay ? 23 : _endTime.hour,
+                                            keepAllDay ? 59 : _endTime.minute,
+                                            keepAllDay ? 59 : 0,
+                                          );
+                                          if (!_isTodo && _startTime.isAfter(_endTime)) {
+                                            _startTime = keepAllDay
+                                                ? DateTime(picked.year, picked.month, picked.day, 0, 0, 0)
+                                                : _endTime.subtract(const Duration(hours: 1));
+                                          }
+                                        });
+                                      },
+                                    ),
+                                  if (activePicker == 'endTime' &&
+                                      ((!_isTodo && !_isAllDay) || (_isTodo && _setDueTime)))
+                                    buildInlineWheelTimePicker(
+                                      pickerKey: 'endTime',
+                                      currentTime: _endTime,
+                                      onTimeChanged: (picked) {
+                                        setDialogState(() {
+                                          _endTime = DateTime(
+                                            _endTime.year,
+                                            _endTime.month,
+                                            _endTime.day,
+                                            picked.hour,
+                                            picked.minute,
+                                          );
+                                          if (!_isTodo && _startTime.isAfter(_endTime)) {
+                                            _startTime = _endTime.subtract(const Duration(hours: 1));
+                                          }
+                                        });
+                                      },
+                                    ),
+                                  if (activePicker == 'endTz')
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                                      child: DropdownButtonFormField<String>(
+                                        initialValue: _endTimezone,
+                                        decoration: InputDecoration(
+                                          labelText: _isTodo
+                                              ? (isJapanese ? '期限タイムゾーン' : 'Due Timezone')
+                                              : (isJapanese ? '終了タイムゾーン' : 'End Timezone'),
+                                          prefixIcon: const Icon(Icons.public),
+                                          border: const OutlineInputBorder(),
+                                          isDense: true,
+                                        ),
+                                        items: kSupportedTimezones.map((tz) {
+                                          return DropdownMenuItem(value: tz, child: Text(tz));
+                                        }).toList(),
+                                        onChanged: (val) {
+                                          if (val != null) {
+                                            setDialogState(() {
+                                              _endTimezone = val;
+                                              if (_isTodo) _startTimezone = val;
+                                              activePicker = null;
+                                            });
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                ]),
+                                const SizedBox(height: 16),
+
+                                // Card 4: Repeat (Apple Calendar style)
+                                if (!_isTodo) ...[
+                                  buildGroupedCard([
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            isJapanese ? '繰り返し' : 'Repeat',
+                                            style: const TextStyle(fontSize: 15, color: Colors.black),
+                                          ),
+                                          DropdownButtonHideUnderline(
+                                            child: DropdownButton<String>(
+                                              value: _isRepeating ? _repeatType : 'None',
+                                              icon: const Icon(
+                                                CupertinoIcons.chevron_up_chevron_down,
+                                                size: 16,
+                                                color: Colors.grey,
+                                              ),
+                                              style: const TextStyle(fontSize: 15, color: Colors.grey),
+                                              items: ['None', ..._repeatOptions].map((opt) {
+                                                return DropdownMenuItem(
+                                                  value: opt,
+                                                  child: Text(repeatDisplayLabel(opt)),
+                                                );
+                                              }).toList(),
+                                              onChanged: (val) {
+                                                if (val == null) return;
+                                                setDialogState(() {
+                                                  if (val == 'None') {
+                                                    _isRepeating = false;
+                                                    _repeatType = 'None';
+                                                    _endOn = false;
+                                                  } else {
+                                                    _isRepeating = true;
+                                                    _repeatType = val;
+                                                    final minYearlyEnd = DateTime(
+                                                      _startTime.year + 1,
+                                                      _startTime.month,
+                                                      _startTime.day,
+                                                    );
+                                                    if (_repeatType == 'Yearly' &&
+                                                        _repeatEndDate.isBefore(minYearlyEnd)) {
+                                                      _repeatEndDate = minYearlyEnd;
+                                                    }
+                                                  }
+                                                });
+                                              },
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    if (_isRepeating) ...[
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              isJapanese ? '繰り返し終了日' : 'End Repeat',
+                                              style: const TextStyle(fontSize: 15, color: Colors.black),
+                                            ),
+                                            CupertinoSwitch(
+                                              value: _endOn,
+                                              onChanged: (val) {
+                                                setDialogState(() {
+                                                  _endOn = val;
+                                                  if (!_endOn && activePicker == 'repeatEnd') {
+                                                    activePicker = null;
+                                                  }
+                                                });
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (_endOn) ...[
+                                        buildResponsivePickerRow(
+                                          label: isJapanese ? '終了日' : 'End Date',
+                                          isVeryNarrow: isVeryNarrow,
+                                          pills: [
+                                            buildApplePill(
+                                              label: DateFormat(datePattern).format(_repeatEndDate),
+                                              isActive: activePicker == 'repeatEnd',
+                                              onTap: () => togglePicker('repeatEnd'),
+                                            ),
+                                          ],
+                                        ),
+                                        if (activePicker == 'repeatEnd')
+                                          buildInlineWheelDatePicker(
+                                            pickerKey: 'repeatEnd',
+                                            currentDate: _repeatEndDate,
+                                            onDateChanged: (picked) {
+                                              setDialogState(() {
+                                                _repeatEndDate = picked;
+                                              });
+                                            },
+                                          ),
+                                      ],
+                                    ],
+                                  ]),
+                                  const SizedBox(height: 16),
+                                ],
+
+                                // Card 5: Calendar / Event Type (Apple Calendar colored dot style)
+                                buildGroupedCard([
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          isJapanese ? 'カレンダー種類' : 'Calendar',
+                                          style: const TextStyle(fontSize: 15, color: Colors.black),
+                                        ),
+                                        DropdownButtonHideUnderline(
+                                          child: DropdownButton<String>(
+                                            value: _eventTypes.contains(_eventType)
+                                                ? _eventType
+                                                : _eventTypes.first,
+                                            icon: const Icon(
+                                              CupertinoIcons.chevron_up_chevron_down,
+                                              size: 16,
+                                              color: Colors.grey,
+                                            ),
+                                            items: _eventTypes.map((String type) {
+                                              return DropdownMenuItem<String>(
+                                                value: type,
+                                                child: Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Container(
+                                                      width: 10,
+                                                      height: 10,
+                                                      decoration: BoxDecoration(
+                                                        color: _getEventColor(type),
+                                                        shape: BoxShape.circle,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    Text(
+                                                      type,
+                                                      style: const TextStyle(
+                                                        fontSize: 15,
+                                                        color: Colors.black87,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              );
+                                            }).toList(),
+                                            onChanged: (String? newValue) {
+                                              if (newValue != null) {
+                                                setDialogState(() => _eventType = newValue);
+                                              }
+                                            },
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ]),
+                              ],
                             ),
-                            items: kSupportedTimezones.map((String tzName) {
-                              return DropdownMenuItem<String>(
-                                value: tzName,
-                                child: Text(tzName),
-                              );
-                            }).toList(),
-                            onChanged: (String? newValue) {
-                              if (newValue != null) {
-                                setDialogState(() {
-                                  _startTimezone = newValue;
-                                  _showStartTimezonePicker = false;
-                                });
-                              }
-                            },
                           ),
-                        ),
-                      const Divider(height: 1),
-                      ListTile(
-                        title: Text(
-                          _isTodo ? "Due Date" : (_isAllDay ? "End Date" : "End Time"),
-                        ),
-                        trailing: Wrap(
-                          spacing: 8,
-                          runSpacing: 6,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            TextButton.icon(
-                              label: Text(
-                                DateFormat('yyyy-MM-dd').format(_endTime),
-                                style: const TextStyle(color: Colors.black),
-                              ),
-                              style: TextButton.styleFrom(
-                                backgroundColor: CupertinoColors.extraLightBackgroundGray,
-                                shape: const StadiumBorder(),
-                                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                              ),
-                              onPressed: () async {
-                                final DateTime? pickedDate = await showDatePicker(
-                                  context: context,
-                                  initialDate: _endTime,
-                                  firstDate: DateTime(2000),
-                                  lastDate: DateTime(2100),
-                                );
-                                if (pickedDate != null) {
-                                  setDialogState(() {
-                                    final bool keepAllDay = _isTodo ? !_setDueTime : _isAllDay;
-                                    _endTime = DateTime(
-                                      pickedDate.year,
-                                      pickedDate.month,
-                                      pickedDate.day,
-                                      keepAllDay ? 23 : _endTime.hour,
-                                      keepAllDay ? 59 : _endTime.minute,
-                                      keepAllDay ? 59 : 0,
-                                    );
-                                    if (!_isTodo && _startTime.isAfter(_endTime)) {
-                                      _startTime = keepAllDay
-                                          ? DateTime(pickedDate.year, pickedDate.month, pickedDate.day, 0, 0, 0)
-                                          : _endTime.subtract(const Duration(hours: 1));
-                                    }
-                                  });
-                                }
-                              },
-                            ),
-                            if (!_isTodo && !_isAllDay)
-                              TextButton(
-                                style: TextButton.styleFrom(
-                                  backgroundColor: CupertinoColors.extraLightBackgroundGray,
-                                  shape: const StadiumBorder(),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                                ),
-                                onPressed: () async {
-                                  final TimeOfDay? pickedTime = await _showAppleStyleTimePicker(
-                                    context: context,
-                                    initialTime: _endTime,
-                                  );
-                                  if (pickedTime != null) {
-                                    setDialogState(() {
-                                      _endTime = DateTime(
-                                        _endTime.year,
-                                        _endTime.month,
-                                        _endTime.day,
-                                        pickedTime.hour,
-                                        pickedTime.minute,
-                                      );
-                                      if (!_isTodo && _startTime.isAfter(_endTime)) {
-                                        _startTime = _endTime.subtract(const Duration(hours: 1));
-                                      }
-                                    });
-                                  }
-                                },
-                                child: Text(
-                                  DateFormat('HH:mm').format(_endTime),
-                                  style: const TextStyle(color: Colors.black),
-                                ),
-                              ),
-                              TextButton.icon(
-                                icon: const Icon(Icons.public, size: 16, color: Colors.black),
-                                label: Text(
-                                  _endTimezone.split('/').last,
-                                  style: const TextStyle(color: Colors.black, fontSize: 12),
-                                ),
-                                style: TextButton.styleFrom(
-                                  backgroundColor: _showEndTimezonePicker
-                                      ? Colors.blue.shade100
-                                      : CupertinoColors.extraLightBackgroundGray,
-                                  shape: const StadiumBorder(),
-                                  padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
-                                ),
-                                onPressed: () {
-                                  setDialogState(() {
-                                    _showEndTimezonePicker = !_showEndTimezonePicker;
-                                    if (_showEndTimezonePicker) {
-                                      _showStartTimezonePicker = false;
-                                    }
-                                  });
-                                },
-                              ),
-                          ],
-                        ),
-                      ),
-                      if (_isTodo && _setDueTime)
-                        ListTile(
-                          title: const Text("Due Time"),
-                          trailing: TextButton(
-                            style: TextButton.styleFrom(
-                              backgroundColor: CupertinoColors.extraLightBackgroundGray,
-                              shape: const StadiumBorder(),
-                              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                            ),
-                            onPressed: () async {
-                              final TimeOfDay? pickedTime = await _showAppleStyleTimePicker(
-                                context: context,
-                                initialTime: _endTime,
-                              );
-                              if (pickedTime != null) {
-                                setDialogState(() {
-                                  _endTime = DateTime(
-                                    _endTime.year,
-                                    _endTime.month,
-                                    _endTime.day,
-                                    pickedTime.hour,
-                                    pickedTime.minute,
-                                  );
-                                });
-                              }
-                            },
-                            child: Text(
-                              DateFormat('HH:mm').format(_endTime),
-                              style: const TextStyle(color: Colors.black),
-                            ),
-                          ),
-                        ),
-                      if (_showEndTimezonePicker)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6, bottom: 10),
-                          child: DropdownButtonFormField<String>(
-                            initialValue: _endTimezone,
-                            decoration: InputDecoration(
-                              labelText: _isTodo ? "Due Timezone" : "End Timezone",
-                              prefixIcon: const Icon(Icons.public),
-                              border: const OutlineInputBorder(),
-                            ),
-                            items: kSupportedTimezones.map((String tzName) {
-                              return DropdownMenuItem<String>(
-                                value: tzName,
-                                child: Text(tzName),
-                              );
-                            }).toList(),
-                            onChanged: (String? newValue) {
-                              if (newValue != null) {
-                                setDialogState(() {
-                                  _endTimezone = newValue;
-                                  if (_isTodo) {
-                                    _startTimezone = newValue;
-                                  }
-                                  _showEndTimezonePicker = false;
-                                });
-                              }
-                            },
-                          ),
-                        ),
-                      const Divider(height: 1),
-                      if (!_isTodo)
-                        Row(
-                          children: [
-                            Checkbox(
-                              value: _isRepeating,
-                              onChanged: (bool? value) {
-                                setDialogState(() {
-                                  _isRepeating = value ?? false;
-                                  if (_isRepeating && !_repeatOptions.contains(_repeatType)) {
-                                    _repeatType = 'Daily';
-                                  } else if (!_isRepeating) {
-                                    _repeatType = 'None';
-                                  }
-                                });
-                              },
-                            ),
-                            const Text("Repeat this event"),
-                          ],
-                        ),
-                      if (!_isTodo && _isRepeating) ...[
-                        const SizedBox(height: 10),
-                        DropdownButtonFormField<String>(
-                          initialValue: _repeatType == 'None' ? 'Daily' : _repeatType,
-                          decoration: const InputDecoration(
-                            labelText: "How often?",
-                            border: OutlineInputBorder(),
-                          ),
-                          items: _repeatOptions
-                              .map((option) => DropdownMenuItem<String>(
-                                    value: option,
-                                    child: Text(option),
-                                  ))
-                              .toList(),
-                          onChanged: (value) => setDialogState(() {
-                            _repeatType = value!;
-                            final minYearlyEnd = DateTime(_startTime.year + 1, _startTime.month, _startTime.day);
-                            if (_repeatType == 'Yearly' && _repeatEndDate.isBefore(minYearlyEnd)) {
-                              _repeatEndDate = minYearlyEnd;
-                            }
-                          }),
                         ),
                       ],
-                      if (!_isTodo && _isRepeating) ...[
-                        Row(
-                          children: [
-                            Checkbox(
-                              value: _endOn,
-                              onChanged: (bool? value) {
-                                setDialogState(() {
-                                  _endOn = value ?? false;
-                                });
-                              },
-                            ),
-                            const Text("Set an end date for repeating"),
-                          ],
-                        ),
-                      ],
-                      if (!_isTodo && _isRepeating && _endOn) ...[
-                        TextButton.icon(
-                          icon: const Icon(Icons.calendar_today),
-                          label: Text("The repeat finishes on: ${DateFormat('yyyy-MM-dd').format(_repeatEndDate)}"),
-                          onPressed: () async {
-                            final DateTime? picked = await showDatePicker(
-                              context: context,
-                              initialDate: _repeatEndDate,
-                              firstDate: DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day),
-                              lastDate: DateTime(2100),
-                            );
-                            if (picked != null) {
-                              setDialogState(() {
-                                _repeatEndDate = picked;
-                              });
-                            }
-                          },
-                        ),
-                      ],
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: _memoController,
-                        decoration: const InputDecoration(
-                          labelText: "Memo/ Description",
-                          prefixIcon: Icon(Icons.note),
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 15),
-                      DropdownButtonFormField<String>(
-                        initialValue: _eventType,
-                        decoration: const InputDecoration(
-                          labelText: "Event Type",
-                          prefixIcon: Icon(Icons.category),
-                          border: OutlineInputBorder(),
-                        ),
-                        items: _eventTypes.map((String type) {
-                          return DropdownMenuItem<String>(
-                            value: type,
-                            child: Text(type),
-                          );
-                        }).toList(),
-                        onChanged: (String? newValue) {
-                          setDialogState(() {
-                            _eventType = newValue!;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 15),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context, false),
-                            child: const Text("Cancel"),
-                          ),
-                          ElevatedButton(
-                            onPressed: () async {
-                              if (_titleController.text.isNotEmpty) {
-                                if (isEditing && eventToEdit.id != null) {
-                                  globalLoading.value = true;
-                                  bool success = await _updateEvent(eventToEdit.id!, _startTime, _endTime);
-                                  if (success && context.mounted) {
-                                    Navigator.pop(context, true);
-                                  }
-                                } else {
-                                  await _makeNewEvents(_startTime, _endTime);
-                                }
-                              } else {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text("Event title cannot be empty!")),
-                                );
-                              }
-                            },
-                            child: Text(isEditing ? "Update" : "Save"),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }

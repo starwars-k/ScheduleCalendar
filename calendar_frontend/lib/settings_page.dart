@@ -25,7 +25,7 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   static const Map<String, String> _languageOptions = {
-    'en' : 'Engish',
+    'en' : 'English',
     'ja' : '日本語 (Japanese)',
   };
   late bool _todoEnabled;
@@ -42,7 +42,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _payrollEnabled = widget.currentSettings.enablePayroll;
     _selectedLanguage = _languageOptions.containsKey(widget.currentSettings.language)
       ? widget.currentSettings.language
-      : 'end';
+      : 'en';
   }
 
   Future<void> _updateSettings({
