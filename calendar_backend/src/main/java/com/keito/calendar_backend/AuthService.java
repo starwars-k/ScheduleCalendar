@@ -168,6 +168,18 @@ public class AuthService {
         }
 
         User user = userOpt.get();
+        long expiresAt = System.currentTimeMillis() + (1000L * 60 * 15); // 15 min
+        String payload = "reset:" + user.getId() + ":" + expiresAt;
+        String signature = sign(payload);
+        String rawToken = payload + ":" + signature;
+        String resetToken = Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(rawToken.getBytes(StandardCharsets.UTF_8));
+
+        if (isEmailDeliveryConfigured() && user.getEmail() != null && !user.getEmail().isBlank()) {
+            sendResetEmailViaResend(user.getEmail(), resetToken);
+        }
+        return Optional.of(resetToken);
     }
 
     @Transactional

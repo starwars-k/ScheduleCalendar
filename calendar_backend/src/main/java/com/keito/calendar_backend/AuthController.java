@@ -92,8 +92,18 @@ public class AuthController {
         if (tokenOpt.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "No account found with that email address"));
         }
-
         boolean emailSent = authService.isEmailDeliveryConfigured();
+        if (emailSent) {
+            return ResponseEntity.ok(Map.of(
+                    "emailSent", true,
+                    "message", "Password reset code sent to your email."
+            ));
+        }
+        return ResponseEntity.ok(Map.of(
+                "emailSent", false,
+                "resetToken", tokenOpt.get(),
+                "message", "Use the reset code below to set a new password."
+        ));
     }
 
     @PostMapping("/reset-password")
