@@ -1373,9 +1373,17 @@ class _CalendarPageState extends State<CalendarPage> {
 
   @override
   Widget build(BuildContext context) {
+    const Color appleRed = Color(0xFFFF3B30);
+    const Color appleBg = Color(0xFFFFFFFF);
+    const Color appleGroupedBg = Color(0xFFF2F2F7);
+    const Color appleHairline = Color(0xFFE5E5EA);
+    const Color appleSecondaryLabel = Color(0xFF8E8E93);
+    const Color appleDarkCircle = Color(0xFF1C1C1E);
+
     String localQuery = '';
     bool isSearchByName = true;
-    
+    final TextEditingController searchController = TextEditingController();
+
     final List<String> tabKeys = ['calendar'];
     if (_activeSettings.enableTodoList) tabKeys.add('todo');
     if (_activeSettings.enablePayroll) tabKeys.add('payroll');
@@ -1386,519 +1394,671 @@ class _CalendarPageState extends State<CalendarPage> {
     }
     final String activeTab = tabKeys[_currentTabIndex];
     final bool isJapanese = _activeSettings.language == 'ja';
-    Widget buildAppleDockBar() {
-      return SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 14, left: 16, right: 16),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(28),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.82),
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(
-                    color: Colors.white.withOpacity(0.95),
-                    width: 1.2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.14),
-                      blurRadius: 24,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: List.generate(tabKeys.length, (index) {
-                    final key = tabKeys[index];
-                    final bool selected = index == _currentTabIndex;
-                    late IconData icon;
-                    late String label;
-                    late Color accentColor;
-                    switch (key) {
-                      case 'todo':
-                        icon = Icons.check_circle_rounded;
-                        label = 'To-Do';
-                        accentColor = Colors.green;
-                        break;
-                      case 'payroll':
-                        icon = Icons.payments_rounded;
-                        label = isJapanese ? '給与' : 'Payroll';
-                        accentColor = Colors.orange;
-                        break;
-                      case 'settings':
-                        icon = Icons.settings_rounded;
-                        label = isJapanese ? '設定' : 'Settings';
-                        accentColor = Colors.blueGrey;
-                        break;
-                      case 'calendar':
-                      default:
-                        icon = Icons.calendar_month_rounded;
-                        label = isJapanese ? 'カレンダー' : 'Calendar';
-                        accentColor = Colors.blue;
-                        break;
-                    }
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () async {
-                          setState(() => _currentTabIndex = index);
-                          if (key == 'calendar') {
-                            await fetchEventsFromJava();
-                          }
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 180),
-                          curve: Curves.easeOutCubic,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: selected
-                                ? accentColor.withOpacity(0.14)
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(18),
+
+    Future<void> openAppleSearchMenu(BuildContext anchorContext, double screenWidth) async {
+      localQuery = '';
+      final RenderBox button = anchorContext.findRenderObject() as RenderBox;
+      final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+      final RelativeRect position = RelativeRect.fromRect(
+        Rect.fromPoints(
+          button.localToGlobal(Offset.zero, ancestor: overlay),
+          button.localToGlobal(button.size.bottomRight(Offset.zero), ancestor: overlay),
+        ),
+        Offset.zero & overlay.size,
+      );
+      final double menuWidth = (screenWidth - 48).clamp(260.0, 410.0);
+      await showMenu(
+        context: context,
+        position: position,
+        color: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        items: [
+          PopupMenuItem(
+            value: 'search',
+            enabled: false,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: StatefulBuilder(
+              builder: (context, menuSetState) {
+                final suggestions = _events.where((event) {
+                  if (localQuery.isEmpty) return false;
+                  if (isSearchByName) {
+                    return event.title.toLowerCase().startsWith(localQuery.toLowerCase()) ||
+                      event.title.toLowerCase().contains(localQuery.toLowerCase());
+                  } else {
+                    return event.eventType.toLowerCase().startsWith(localQuery.toLowerCase());
+                  }
+                }).toList();
+                return SizedBox(
+                  width: menuWidth,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: isSearchByName
+                                ? TextField(
+                                    controller: searchController,
+                                    autofocus: true,
+                                    style: const TextStyle(fontSize: 14, color: Colors.black),
+                                    decoration: InputDecoration(
+                                      hintText: isJapanese ? 'タイトルで検索...' : 'Search by title...',
+                                      hintStyle: const TextStyle(
+                                        fontSize: 13,
+                                        color: CupertinoColors.placeholderText,
+                                      ),
+                                      prefixIcon: const Icon(
+                                        CupertinoIcons.search,
+                                        size: 16,
+                                        color: appleSecondaryLabel,
+                                      ),
+                                      prefixIconConstraints: const BoxConstraints(
+                                        minWidth: 32,
+                                        minHeight: 34,
+                                      ),
+                                      suffixIcon: localQuery.isEmpty
+                                          ? null
+                                          : GestureDetector(
+                                              onTap: () {
+                                                searchController.clear();
+                                                menuSetState(() => localQuery = '');
+                                              },
+                                              child: const Icon(
+                                                CupertinoIcons.clear_thick_circled,
+                                                size: 16,
+                                                color: appleSecondaryLabel,
+                                              ),
+                                            ),
+                                      suffixIconConstraints: const BoxConstraints(
+                                        minWidth: 30,
+                                        minHeight: 34,
+                                      ),
+                                      contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 8,
+                                      ),
+                                      isDense: true,
+                                      filled: true,
+                                      fillColor: appleGroupedBg,
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                        borderSide: BorderSide.none,
+                                      ),
+                                    ),
+                                    onChanged: (value) => menuSetState(() => localQuery = value),
+                                  )
+                                : DropdownButtonFormField<String>(
+                                    value: localQuery.isEmpty ? null : localQuery,
+                                    isExpanded: true,
+                                    icon: const Icon(
+                                      CupertinoIcons.chevron_up_chevron_down,
+                                      size: 14,
+                                      color: appleSecondaryLabel,
+                                    ),
+                                    decoration: InputDecoration(
+                                      hintText: isJapanese ? '種類を選択' : 'Select a type',
+                                      hintStyle: const TextStyle(
+                                        fontSize: 13,
+                                        color: CupertinoColors.placeholderText,
+                                      ),
+                                      contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 8,
+                                      ),
+                                      isDense: true,
+                                      filled: true,
+                                      fillColor: appleGroupedBg,
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                        borderSide: BorderSide.none,
+                                      ),
+                                    ),
+                                    items: _eventTypes.map((String typeName) {
+                                      return DropdownMenuItem<String>(
+                                        value: typeName,
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Container(
+                                              width: 8,
+                                              height: 8,
+                                              decoration: BoxDecoration(
+                                                color: _getEventColor(typeName),
+                                                shape: BoxShape.circle,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Flexible(
+                                              child: Text(
+                                                typeName,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(fontSize: 13),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }).toList(),
+                                    onChanged: (String? newValue) {
+                                      if (newValue != null) {
+                                        menuSetState(() => localQuery = newValue);
+                                      }
+                                    },
+                                  ),
                           ),
+                          const SizedBox(width: 6),
+                          CupertinoSlidingSegmentedControl<bool>(
+                            groupValue: isSearchByName,
+                            padding: const EdgeInsets.all(2),
+                            children: {
+                              true: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                child: Text(
+                                  isJapanese ? 'タイトル' : 'Title',
+                                  style: const TextStyle(fontSize: 11, color: Colors.black),
+                                ),
+                              ),
+                              false: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                child: Text(
+                                  isJapanese ? '種類' : 'Type',
+                                  style: const TextStyle(fontSize: 11, color: Colors.black),
+                                ),
+                              ),
+                            },
+                            onValueChanged: (value) {
+                              if (value != null) {
+                                menuSetState(() {
+                                  isSearchByName = value;
+                                  localQuery = '';
+                                  searchController.clear();
+                                });
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                      if (localQuery.isNotEmpty && suggestions.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Divider(height: 1),
+                        Container(
+                          constraints: const BoxConstraints(maxHeight: 180),
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: suggestions.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final event = suggestions[index];
+                              return ListTile(
+                                dense: true,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                                leading: Container(
+                                  width: 4,
+                                  height: 24,
+                                  decoration: BoxDecoration(
+                                    color: _getEventColor(event.eventType),
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                ),
+                                title: Text(
+                                  event.title,
+                                  style: const TextStyle(fontSize: 14, color: Colors.black, fontWeight: FontWeight.w500),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                trailing: Text(
+                                  DateFormat('yyyy-MM-dd').format(event.displayEffectiveTime),
+                                  style: const TextStyle(fontSize: 12, color: appleSecondaryLabel),
+                                ),
+                                onTap: () async {
+                                  Navigator.pop(context);
+                                  final target = event.displayEffectiveTime;
+                                  final bool yearChanged = target.year != _focusedDay.year;
+                                  setState(() {
+                                    _selectedDay = target;
+                                    _focusedDay = target;
+                                  });
+                                  if (yearChanged) {
+                                    await fetchEventsFromJava(targetYear: target.year);
+                                  }
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                      if (localQuery.isNotEmpty && suggestions.isEmpty) ...[
+                        const SizedBox(height: 8),
+                        const Divider(height: 1),
+                        SizedBox(
+                          height: 40,
+                          child: Center(
+                            child: Text(
+                              isJapanese ? '予定が見つかりません' : 'No matching events',
+                              style: const TextStyle(fontSize: 13, color: appleSecondaryLabel),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      );
+    }
+
+    Widget buildAppleTopHeader(double screenWidth) {
+      final bool isCompact = screenWidth < 400;
+      final String yearText = '${_focusedDay.year}';
+      final String monthTitle = isJapanese
+          ? DateFormat('M月').format(_focusedDay)
+          : DateFormat('MMMM').format(_focusedDay);
+
+      String nonCalendarTitle = isJapanese ? 'To-Do リスト' : 'To-Do List';
+      if (activeTab == 'payroll') nonCalendarTitle = isJapanese ? '給与計算' : 'Payroll';
+      if (activeTab == 'settings') nonCalendarTitle = isJapanese ? '設定' : 'Settings';
+
+      return Container(
+        decoration: const BoxDecoration(
+          color: appleBg,
+          border: Border(bottom: BorderSide(color: appleHairline, width: 0.5)),
+        ),
+        child: SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(isCompact ? 12 : 16, 6, isCompact ? 8 : 12, 8),
+            child: activeTab == 'calendar'
+                ? Row(
+                    children: [
+                      // Apple Calendar Year + Bold Month Title (Tap to jump date)
+                      Expanded(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () async {
+                            final DateTime? picked = await showDatePicker(
+                              context: context,
+                              initialDate: _focusedDay,
+                              firstDate: DateTime(2000, 1, 1),
+                              lastDate: DateTime(2100, 12, 31),
+                            );
+                            if (picked != null) {
+                              setState(() {
+                                _focusedDay = picked;
+                                _selectedDay = picked;
+                              });
+                              await fetchEventsFromJava(targetYear: picked.year);
+                            }
+                          },
                           child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              AnimatedScale(
-                                scale: selected ? 1.12 : 1.0,
-                                duration: const Duration(milliseconds: 180),
-                                child: Icon(
-                                  icon,
-                                  size: 24,
-                                  color: selected ? accentColor : Colors.grey.shade700,
-                                ),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    CupertinoIcons.chevron_left,
+                                    size: 13,
+                                    color: appleRed,
+                                  ),
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    isJapanese ? '$yearText年' : yearText,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                      color: appleRed,
+                                    ),
+                                  ),
+                                  if (widget.username.isNotEmpty) ...[
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child: Text(
+                                        '• ${widget.username}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: appleSecondaryLabel,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
-                              const SizedBox(height: 3),
-                              Text(
-                                label,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                                  color: selected ? accentColor : Colors.grey.shade700,
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              AnimatedContainer(
-                                duration: const Duration(milliseconds: 180),
-                                width: selected ? 5 : 0,
-                                height: 5,
-                                decoration: BoxDecoration(
-                                  color: selected ? accentColor : Colors.transparent,
-                                  shape: BoxShape.circle,
-                                ),
+                              Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      monthTitle,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: isCompact ? 22 : 28,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: -0.6,
+                                        color: Colors.black,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 2),
+                                  CupertinoButton(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                    minSize: 24,
+                                    onPressed: () {
+                                      final prev = DateTime(_focusedDay.year, _focusedDay.month - 1, 1);
+                                      setState(() => _focusedDay = prev);
+                                      fetchEventsFromJava(targetYear: prev.year, silent: true);
+                                    },
+                                    child: const Icon(
+                                      CupertinoIcons.chevron_left,
+                                      size: 15,
+                                      color: appleSecondaryLabel,
+                                    ),
+                                  ),
+                                  CupertinoButton(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                    minSize: 24,
+                                    onPressed: () {
+                                      final next = DateTime(_focusedDay.year, _focusedDay.month + 1, 1);
+                                      setState(() => _focusedDay = next);
+                                      fetchEventsFromJava(targetYear: next.year, silent: true);
+                                    },
+                                    child: const Icon(
+                                      CupertinoIcons.chevron_right,
+                                      size: 15,
+                                      color: appleSecondaryLabel,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
                         ),
                       ),
-                    );
-                  }),
-                ),
-              ),
-            ),
+                      //Apple Red Action Icons (Serch, Add +)
+                      Builder(
+                        builder: (btnCtx) => CupertinoButton(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          minSize: 32,
+                          onPressed: () => openAppleSearchMenu(btnCtx, screenWidth),
+                          child: const Icon(CupertinoIcons.search, color: appleRed, size: 21),
+                        ),
+                      ),
+                      CupertinoButton(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        minSize: 32,
+                        onPressed: globalLoading.value
+                            ? null
+                            : () => _showAddEventDialog(context, _selectedDay),
+                        child: const Icon(CupertinoIcons.plus, color: appleRed, size: 23),
+                      ),
+                    ],
+                  )
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (widget.username.isNotEmpty)
+                            Text(
+                              widget.username,
+                              style: const TextStyle(fontSize: 12, color: appleSecondaryLabel),
+                            ),
+                          Text(
+                            nonCalendarTitle,
+                            style: TextStyle(
+                              fontSize: isCompact ? 24 : 28,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.6,
+                              color: Colors.black,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
           ),
         ),
       );
     }
 
-    String appBarTitleBase = isJapanese ? 'スケジュールカレンダー' : 'Schedule Calendar';
-    if (activeTab == 'todo') appBarTitleBase = isJapanese ? 'To-Do リスト' : 'To-Do List';
-    if (activeTab == 'payroll') appBarTitleBase = isJapanese ? '給与計算' : 'Payroll';
-    if (activeTab == 'settings') appBarTitleBase = isJapanese ? '設定' : 'Settings';
+    Widget buildAppleDayCell(
+      DateTime day, {
+      required bool isSelected,
+      required bool isToday,
+      required bool isOutside,
+    }) {
+      Color? circleColor;
+      Color textColor = isOutside ? const Color(0xFFC7C7CC) : Colors.black;
+      FontWeight weight = FontWeight.w400;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          widget.username.isNotEmpty ? '$appBarTitleBase (${widget.username})' : appBarTitleBase,
+      if (isSelected && isToday) {
+        circleColor = appleRed;
+        textColor = Colors.white;
+        weight = FontWeight.w700;
+      } else if (isSelected) {
+        circleColor = appleDarkCircle;
+        textColor = Colors.white;
+        weight = FontWeight.w700;
+      } else if (isToday) {
+        textColor = appleRed;
+        weight = FontWeight.w700;
+      }
+
+      return Container(
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: appleHairline, width: 0.5)),
         ),
-        actions: [
-          if (activeTab == 'calendar')
-            IconButton(
-              icon: Icon(_isSearching ? Icons.close : Icons.search),
-              onPressed: () async {
-                localQuery = '';
-                final RenderBox button = context.findRenderObject() as RenderBox;
-                final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-                final RelativeRect position = RelativeRect.fromRect(
-                  Rect.fromPoints(
-                    button.localToGlobal(Offset.zero, ancestor: overlay),
-                    button.localToGlobal(button.size.bottomRight(Offset.zero), ancestor: overlay),
+        alignment: Alignment.topCenter,
+        padding: const EdgeInsets.only(top: 4),
+        child: Container(
+          width: 32,
+          height: 32,
+          decoration: circleColor != null
+              ? BoxDecoration(color: circleColor, shape: BoxShape.circle)
+              : null,
+          alignment: Alignment.center,
+          child: Text(
+            '${day.day}',
+            style: TextStyle(fontSize: 16, fontWeight: weight, color: textColor),
+          ),
+        ),
+      );
+    }
+
+    Widget buildAppleMonthGrid(double availableWidth) {
+      final bool isCompact = availableWidth < 400;
+      const List<String> enWeekdays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+      const List<String> jaWeekdays = ['日', '月', '火', '水', '木', '金', '土'];
+
+      return Container(
+        color: appleBg,
+        padding: const EdgeInsets.only(bottom: 4),
+        child: TableCalendar<DailyEvent>(
+          firstDay: DateTime(2000, 1, 1),
+          lastDay: DateTime(2100, 12, 31),
+          focusedDay: _focusedDay,
+          calendarFormat: _calendarFormat,
+          headerVisible: false,
+          daysOfWeekHeight: 26,
+          rowHeight: isCompact ? 46 : 52,
+          selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+          eventLoader: (day) {
+            final dayStart = DateTime(day.year, day.month, day.day, 0, 0, 0);
+            final dayEnd = DateTime(day.year, day.month, day.day, 23, 59, 59);
+            return _events.where((event) {
+              if (event.isTodo) return isSameDay(event.displayEndTime, day);
+              return event.displayEffectiveTime.isBefore(dayEnd) &&
+                  event.displayEndTime.isAfter(dayStart);
+            }).toList();
+          },
+          onDaySelected: (selectedDay, focusedDay) {
+            setState(() {
+              _selectedDay = selectedDay;
+              _focusedDay = focusedDay;
+            });
+          },
+          onFormatChanged: (format) => setState(() => _calendarFormat = format),
+          onPageChanged: (focusedDay) {
+            setState(() => _focusedDay = focusedDay);
+            fetchEventsFromJava(targetYear: focusedDay.year, silent: true);
+          },
+          calendarBuilders: CalendarBuilders<DailyEvent>(
+            dowBuilder: (context, day) {
+              final int idx = day.weekday % 7;
+              final bool isWeekend = idx == 0 || idx == 6;
+              return Center(
+                child: Text(
+                  isJapanese ? jaWeekdays[idx] : enWeekdays[idx],
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: isWeekend ? appleSecondaryLabel : const Color(0xFF3C3C43),
                   ),
-                  Offset.zero & overlay.size,
-                );
-                await showMenu(
-                  context: context,
-                  position: position,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(24.0),
-                  ),
-                  items: [
-                    PopupMenuItem(
-                      value: 'search',
-                      enabled: false,
-                      child: StatefulBuilder(
-                        builder: (context, menuSetState) {
-                          final suggestions = _events.where((event) {
-                            if (localQuery.isEmpty) return false;
-                            if (isSearchByName) {
-                              return event.title.toLowerCase().startsWith(localQuery.toLowerCase());
-                            } else {
-                              return event.eventType.toLowerCase().startsWith(localQuery.toLowerCase());
-                            }
-                          }).toList();
-                          return SizedBox(
-                            width: 500,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: isSearchByName
-                                          ? TextField(
-                                              autofocus: true,
-                                              decoration: const InputDecoration(
-                                                hintText: 'Search event by title or type...',
-                                                isDense: true,
-                                                border: OutlineInputBorder(),
-                                              ),
-                                              onChanged: (value) {
-                                                menuSetState(() {
-                                                  localQuery = value;
-                                                });
-                                              },
-                                            )
-                                          : DropdownButtonFormField<String>(
-                                              initialValue: localQuery.isEmpty ? null : localQuery,
-                                              decoration: const InputDecoration(
-                                                hintText: 'Select a type',
-                                                isDense: true,
-                                                border: OutlineInputBorder(),
-                                              ),
-                                              items: _eventTypes.map((String typeName) {
-                                                return DropdownMenuItem<String>(
-                                                  value: typeName,
-                                                  child: Text(
-                                                    typeName,
-                                                    style: TextStyle(
-                                                      fontSize: 14,
-                                                      color: _getEventColor(typeName),
-                                                    ),
-                                                  ),
-                                                );
-                                              }).toList(),
-                                              onChanged: (String? newValue) {
-                                                if (newValue != null) {
-                                                  menuSetState(() {
-                                                    localQuery = newValue;
-                                                  });
-                                                }
-                                              },
-                                            ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            SizedBox(
-                                              width: 20,
-                                              height: 20,
-                                              child: Radio<bool>(
-                                                value: true,
-                                                groupValue: isSearchByName,
-                                                onChanged: (value) {
-                                                  if (value != null) {
-                                                    menuSetState(() {
-                                                      isSearchByName = value;
-                                                      localQuery = '';
-                                                    });
-                                                  }
-                                                },
-                                              ),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            const Text('Title', style: TextStyle(fontSize: 12, color: Colors.black)),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            SizedBox(
-                                              width: 20,
-                                              height: 20,
-                                              child: Radio<bool>(
-                                                value: false,
-                                                groupValue: isSearchByName,
-                                                onChanged: (value) {
-                                                  if (value != null) {
-                                                    menuSetState(() {
-                                                      isSearchByName = value;
-                                                      localQuery = '';
-                                                    });
-                                                  }
-                                                },
-                                              ),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            const Text('Type', style: TextStyle(fontSize: 12, color: Colors.black)),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                if (localQuery.isNotEmpty && suggestions.isNotEmpty) ...[
-                                  const Divider(height: 1),
-                                  Container(
-                                    constraints: const BoxConstraints(maxHeight: 150),
-                                    child: ListView.builder(
-                                      shrinkWrap: true,
-                                      itemCount: suggestions.length,
-                                      itemBuilder: (context, index) {
-                                        final event = suggestions[index];
-                                        return ListTile(
-                                          dense: true,
-                                          title: Row(
-                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                            children: [
-                                              Expanded(
-                                                child: Text(
-                                                  event.title,
-                                                  style: const TextStyle(fontSize: 14, color: Colors.black),
-                                                  overflow: TextOverflow.ellipsis,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 8),
-                                              Text(
-                                                DateFormat('yyyy-MM-dd').format(event.displayEffectiveTime),
-                                                style: const TextStyle(fontSize: 12, color: Colors.grey),
-                                              ),
-                                            ],
-                                          ),
-                                          subtitle: Text(
-                                            event.eventType,
-                                            style: TextStyle(fontSize: 14, color: _getEventColor(event.eventType)),
-                                          ),
-                                          onTap: () {
-                                            Navigator.pop(context);
-                                            setState(() {
-                                              _selectedDay = event.displayEffectiveTime;
-                                              _focusedDay = event.displayEffectiveTime;
-                                            });
-                                          },
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ],
-                                if (localQuery.isNotEmpty && suggestions.isEmpty) ...[
-                                  const Divider(height: 1),
-                                  const SizedBox(
-                                    height: 40,
-                                    child: Center(
-                                      child: Text(
-                                        'Cannot find event',
-                                        style: TextStyle(fontSize: 12, color: Colors.black),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                );
-              },
+                ),
+              );
+            },
+            defaultBuilder: (context, day, focusedDay) =>
+                buildAppleDayCell(day, isSelected: false, isToday: false, isOutside: false),
+            todayBuilder: (context, day, focusedDay) =>
+                buildAppleDayCell(day, isSelected: false, isToday: true, isOutside: false),
+            selectedBuilder: (context, day, focusedDay) => buildAppleDayCell(
+              day,
+              isSelected: true,
+              isToday: isSameDay(day, DateTime.now()),
+              isOutside: false,
             ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Logout',
-            onPressed: () async {
-              await _confirmAndLogout();
+            outsideBuilder: (context, day, focusedDay) =>
+                buildAppleDayCell(day, isSelected: false, isToday: false, isOutside: true),
+            markerBuilder: (context, date, events) {
+              if (events.isEmpty) return const SizedBox.shrink();
+              return Positioned(
+                bottom: 4,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: events.take(3).map((dailyEvent) {
+                    return Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 1.5),
+                      width: 5.5,
+                      height: 5.5,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _getEventColor(dailyEvent.eventType),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              );
             },
           ),
-        ],
-      ),
-      body: Stack(
-        children: [
-          if (activeTab == 'settings')
-            SettingsPage(
-              backendBaseUrl: kBackendBaseUrl,
-              authToken: widget.authToken,
-              currentSettings: _activeSettings,
-              onSettingsChanged: (updated) async {
-                setState(() {
-                  _activeSettings = updated;
-                  final updatedTabKeys = [
-                    'calendar',
-                    if (updated.enableTodoList) 'todo',
-                    if (updated.enablePayroll) 'payroll',
-                    'settings',
-                  ];
-                  final settingsIdx = updatedTabKeys.indexOf('settings');
-                  if (settingsIdx != -1) {
-                    _currentTabIndex = settingsIdx;
-                  }
-                });
-              },
-              onLogout: _confirmAndLogout,
-            )
-          else if (activeTab == 'todo')
-            TodoListPage(
-              backendBaseUrl: kBackendBaseUrl,
-              authToken: widget.authToken,
-              defaultTimezone: _defaultUserTimezone(),
-              onTodoChanged: () => fetchEventsFromJava(),
-            )
-          else if (activeTab == 'payroll')
-            const Center(child: Text('Payroll Page'))
-          else
-            Stack(
-              children: [
-                Column(
-                  children: [
-                    TableCalendar(
-                      firstDay: DateTime(2000, 1, 1),
-                      lastDay: DateTime(2100, 12, 31),
-                      focusedDay: _focusedDay,
-                      calendarFormat: _calendarFormat,
-                      selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-                      eventLoader: (day) {
-                        final dayStart = DateTime(day.year, day.month, day.day, 0, 0, 0);
-                        final dayEnd = DateTime(day.year, day.month, day.day, 23, 59, 59);
-                        return _events.where((event) {
-                          if (event.isTodo) return isSameDay(event.displayEndTime, day);
-                          return event.displayEffectiveTime.isBefore(dayEnd) &&
-                          event.displayEndTime.isAfter(dayStart);
-                        }).toList();
-                      },
-                      onDaySelected: (selectedDay, focusedDay) {
-                        setState(() {
-                          _selectedDay = selectedDay;
-                          _focusedDay = focusedDay;
-                        });
-                      },
-                      onFormatChanged: (format) {
-                        setState(() {
-                          _calendarFormat = format;
-                        });
-                      },
-                      onPageChanged: (focusedDay){
-                        _focusedDay = focusedDay;
-                        fetchEventsFromJava(targetYear: focusedDay.year, silent:true);
-                      },
-                      calendarBuilders: CalendarBuilders(
-                        markerBuilder: (context, date, events) {
-                          if (events.isEmpty) return const SizedBox();
-                          return Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: events.take(3).map((event) {
-                              final dailyEvent = event as DailyEvent;
-                              return Container(
-                                margin: const EdgeInsets.symmetric(horizontal: 0.5),
-                                width: 7,
-                                height: 7,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: _getEventColor(dailyEvent.eventType),
-                                ),
-                              );
-                            }).toList(),
-                          );
-                        },
-                      ),
-                      headerStyle: const HeaderStyle(
-                        formatButtonVisible: false,
-                        titleCentered: true,
-                      ),
-                      onHeaderTapped: (focusedDay) async {
-                        final DateTime? picked = await showDatePicker(
-                          context: context,
-                          initialDate: focusedDay,
-                          firstDate: DateTime(2000, 1, 1),
-                          lastDate: DateTime(2100, 12, 31),
-                        );
-                        if (picked != null) {
-                          setState(() {
-                            _focusedDay = picked;
-                            _selectedDay = picked;
-                          });
-                          await fetchEventsFromJava(targetYear: picked.year);
-                        }
-                      },
-                    ),
+        ),
+      );
+    }
 
-                    Expanded(
-                      child: ListView.builder(
-                        padding: const EdgeInsets.only(bottom: 160),
-                        itemCount: _selectedEvents.length,
-                        itemBuilder: (context, index) {
-                          final event = _selectedEvents[index];
-                          final bool isDueToday = event.isTodo && isSameDay(event.displayEndTime, DateTime.now());
-                          final bool isHighPriorityTodo = event.isTodo &&
-                              event.id != null &&
-                              _highPriorityTodoEventIds.contains(event.id);
-                          return ListTile(
-                            leading: Icon(
-                              event.isTodo
-                                ? (event.isComplete ? Icons.check_circle : Icons.radio_button_unchecked)
-                                : Icons.event,
-                              color: _getEventColor(event.eventType),
+    Widget buildSelectedDayAgenda() {
+      final bool isSelectedToday = isSameDay(_selectedDay, DateTime.now());
+      final String dayHeader = isJapanese
+          ? '${DateFormat('M月d日').format(_selectedDay)}${isSelectedToday ? ' ・ 今日' : ''}'
+          : '${DateFormat('EEEE, MMM d').format(_selectedDay).toUpperCase()}${isSelectedToday ? ' • TODAY' : ''}';
+
+      return Container(
+        color: appleGroupedBg,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+              decoration: const BoxDecoration(
+                color: appleGroupedBg,
+                border: Border(
+                  top: BorderSide(color: appleHairline, width: 0.5),
+                  bottom: BorderSide(color: appleHairline, width: 0.5),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    dayHeader,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.4,
+                      color: isSelectedToday ? appleRed : appleSecondaryLabel,
+                    ),
+                  ),
+                  if (_selectedEvents.isNotEmpty)
+                    Text(
+                      isJapanese
+                          ? '${_selectedEvents.length}件'
+                          : '${_selectedEvents.length} ${_selectedEvents.length == 1 ? 'event' : 'events'}',
+                      style: const TextStyle(fontSize: 12, color: appleSecondaryLabel),
+                    ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _selectedEvents.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            isJapanese ? '予定なし' : 'No Events',
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w500,
+                              color: appleSecondaryLabel,
                             ),
-                            title: Text(
-                              event.title,
-                              style: TextStyle(
-                                decoration: (event.isTodo && event.isComplete)
-                                  ? TextDecoration.lineThrough
-                                  : TextDecoration.none,
-                              ),
+                          ),
+                          const SizedBox(height: 6),
+                          CupertinoButton(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            onPressed: globalLoading.value
+                                ? null
+                                : () => _showAddEventDialog(context, _selectedDay),
+                            child: Text(
+                              isJapanese ? '+ 予定を追加' : '+ New Event',
+                              style: const TextStyle(fontSize: 14, color: appleRed),
                             ),
-                            subtitle: Text(
-                              event.isTodo
-                                ? (isDueToday
-                                    ? (event.isAllDay
-                                        ? "Due: TODAY"
-                                        : "Due: TODAY, ${DateFormat('HH:mm').format(event.displayEndTime)} (${event.timezone.split('/').last})")
-                                    : (event.isAllDay
-                                        ? "Due: ${DateFormat('MMM d').format(event.displayEndTime)}"
-                                        : "Due: ${DateFormat('MMM d, HH:mm').format(event.displayEndTime)} (${event.timezone.split('/').last})"))
-                                : (event.isAllDay
-                                    ? "All-Day"
-                                    : "${DateFormat('MMM d, HH:mm').format(event.displayEffectiveTime)}(${event.startTimezone.split('/').last}) - ${DateFormat('MMM d, HH:mm').format(event.displayEndTime)}(${event.endTimezone.split('/').last})"),
-                            ),
-                            trailing: isHighPriorityTodo
-                                ? Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                    decoration: BoxDecoration(
-                                      color: Colors.redAccent.withOpacity(0.15),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
-                                    ),
-                                    child: const Text(
-                                      'HIGH',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.redAccent,
-                                      ),
-                                    ),
-                                  )
-                                : null,
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 100),
+                      itemCount: _selectedEvents.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final event = _selectedEvents[index];
+                        final Color eventColor = _getEventColor(event.eventType);
+                        final bool isHighPriorityTodo = event.isTodo &&
+                            event.id != null &&
+                            _highPriorityTodoEventIds.contains(event.id);
+
+                        final String primaryTime = event.isTodo
+                            ? (event.isAllDay
+                                ? (isJapanese ? '期限' : 'Due')
+                                : DateFormat('HH:mm').format(event.displayEndTime))
+                            : (event.isAllDay
+                                ? (isJapanese ? '終日' : 'All-day')
+                                : DateFormat('HH:mm').format(event.displayEffectiveTime));
+
+                        final String secondaryTime = event.isTodo
+                            ? (event.isAllDay ? 'To-Do' : event.timezone.split('/').last)
+                            : (event.isAllDay
+                                ? event.eventType
+                                : DateFormat('HH:mm').format(event.displayEndTime));
+
+                        return Material(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(12),
                             onTap: () {
                               Navigator.push(
                                 context,
@@ -1906,6 +2066,7 @@ class _CalendarPageState extends State<CalendarPage> {
                                   builder: (context) => EventDetailPage(
                                     event: event,
                                     authToken: widget.authToken,
+                                    isJapanese: isJapanese,
                                     onDelete: (id) => _deleteEvent(id),
                                     onUpdate: () => fetchEventsFromJava(),
                                     onEdit: (currentEventType) async {
@@ -1921,55 +2082,300 @@ class _CalendarPageState extends State<CalendarPage> {
                                     },
                                     allEventTypes: _eventTypes,
                                     onEventTypeChanged: (newType) {
-                                      setState(() {
-                                        _eventType = newType;
-                                      });
+                                      setState(() => _eventType = newType);
                                     },
                                   ),
                                 ),
                               );
                             },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                              child: Row(
+                                children: [
+                                  // Apple Calendar Left Vertical Color Bar
+                                  Container(
+                                    width: 4,
+                                    height: 36,
+                                    decoration: BoxDecoration(
+                                      color: eventColor,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            if (event.isTodo) ...[
+                                              Icon(
+                                                event.isComplete
+                                                    ? CupertinoIcons.checkmark_circle_fill
+                                                    : CupertinoIcons.circle,
+                                                size: 16,
+                                                color: eventColor,
+                                              ),
+                                              const SizedBox(width: 6),
+                                            ],
+                                            Expanded(
+                                              child: Text(
+                                                event.title,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: (event.isTodo && event.isComplete)
+                                                      ? appleSecondaryLabel
+                                                      : Colors.black,
+                                                  decoration: (event.isTodo && event.isComplete)
+                                                      ? TextDecoration.lineThrough
+                                                      : TextDecoration.none,
+                                                ),
+                                              ),
+                                            ),
+                                            if (isHighPriorityTodo) ...[
+                                              const SizedBox(width: 6),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(
+                                                  horizontal: 6,
+                                                  vertical: 2,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: appleRed.withOpacity(0.12),
+                                                  borderRadius: BorderRadius.circular(6),
+                                                ),
+                                                child: const Text(
+                                                  'HIGH',
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: appleRed,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          event.description.isNotEmpty
+                                              ? event.description
+                                              : event.eventType,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            color: appleSecondaryLabel,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        primaryTime,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        secondaryTime,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: appleSecondaryLabel,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    Widget buildAppleBottomBar() {
+      return ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF9F9FB).withOpacity(0.92),
+              border: const Border(top: BorderSide(color: appleHairline, width: 0.5)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: SizedBox(
+                height: 54,
+                child: Row(
+                  children: [
+                    if (activeTab == 'calendar')
+                      Padding(
+                        padding: const EdgeInsets.only(left: 12),
+                        child: CupertinoButton(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          minSize: 32,
+                          onPressed: () async {
+                            final now = DateTime.now();
+                            final bool yearChanged = now.year != _focusedDay.year;
+                            setState(() {
+                              _focusedDay = now;
+                              _selectedDay = now;
+                            });
+                            if (yearChanged) {
+                              await fetchEventsFromJava(targetYear: now.year);
+                            }
+                          },
+                          child: Text(
+                            isJapanese ? '今日' : 'Today',
+                            style: const TextStyle(
+                              color: appleRed,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                    Expanded(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: List.generate(tabKeys.length, (index) {
+                          final key = tabKeys[index];
+                          final bool selected = index == _currentTabIndex;
+                          late IconData icon;
+                          late String label;
+                          switch (key) {
+                            case 'todo':
+                              icon = selected
+                                  ? CupertinoIcons.checkmark_circle_fill
+                                  : CupertinoIcons.checkmark_circle;
+                              label = 'To-Do';
+                              break;
+                            case 'payroll':
+                              icon = selected
+                                  ? CupertinoIcons.money_dollar_circle_fill
+                                  : CupertinoIcons.money_dollar_circle;
+                              label = isJapanese ? '給与' : 'Payroll';
+                              break;
+                            case 'settings':
+                              icon = selected ? CupertinoIcons.gear_solid : CupertinoIcons.gear;
+                              label = isJapanese ? '設定' : 'Settings';
+                              break;
+                            case 'calendar':
+                            default:
+                              icon = selected ? CupertinoIcons.calendar_today : CupertinoIcons.calendar;
+                              label = isJapanese ? 'カレンダー' : 'Calendar';
+                              break;
+                          }
+                          return GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () async {
+                              setState(() => _currentTabIndex = index);
+                              if (key == 'calendar') {
+                                await fetchEventsFromJava();
+                              }
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    icon,
+                                    size: 22,
+                                    color: selected ? appleRed : appleSecondaryLabel,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    label,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                                      color: selected ? appleRed : appleSecondaryLabel,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           );
-                        },
+                        }),
                       ),
                     ),
                   ],
                 ),
-                Positioned(
-                  left: 16,
-                  right: 16,
-                  bottom: 96,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      FloatingActionButton.extended(
-                        onPressed: () {
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Scaffold(
+          backgroundColor: appleGroupedBg,
+          body: Column(
+            children: [
+              buildAppleTopHeader(constraints.maxWidth),
+              Expanded(
+                child: activeTab == 'settings'
+                    ? SettingsPage(
+                        backendBaseUrl: kBackendBaseUrl,
+                        authToken: widget.authToken,
+                        currentSettings: _activeSettings,
+                        onSettingsChanged: (updated) async {
                           setState(() {
-                            _focusedDay = DateTime.now();
-                            _selectedDay = DateTime.now();
+                            _activeSettings = updated;
+                            final updatedTabKeys = [
+                              'calendar',
+                              if (updated.enableTodoList) 'todo',
+                              if (updated.enablePayroll) 'payroll',
+                              'settings',
+                            ];
+                            final settingsIdx = updatedTabKeys.indexOf('settings');
+                            if (settingsIdx != -1) {
+                              _currentTabIndex = settingsIdx;
+                            }
                           });
                         },
-                        label: const Text("TODAY"),
-                        icon: const Icon(Icons.today),
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.blue,
-                      ),
-                      FloatingActionButton(
-                        onPressed: globalLoading.value ? null : () => _showAddEventDialog(context, _selectedDay),
-                        child: const Icon(Icons.add, color: Colors.black),
-                      ),
-                    ],
-                  ),
-                  
-                ),
-              ],
-            ),
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: buildAppleDockBar(),
-            ),
-        ],
-      ),
+                        onLogout: _confirmAndLogout,
+                      )
+                    : activeTab == 'todo'
+                        ? TodoListPage(
+                            backendBaseUrl: kBackendBaseUrl,
+                            authToken: widget.authToken,
+                            defaultTimezone: _defaultUserTimezone(),
+                            isJapanese: isJapanese,
+                            onTodoChanged: () => fetchEventsFromJava(),
+                          )
+                        : activeTab == 'payroll'
+                            ? const Center(child: Text('Payroll Page'))
+                            : Column(
+                                children: [
+                                  buildAppleMonthGrid(constraints.maxWidth),
+                                  Expanded(child: buildSelectedDayAgenda()),
+                                ],
+                            ),
+              ),
+            ],
+          ),
+          bottomNavigationBar: buildAppleBottomBar(),
+        );
+      },
     );
   }
 }

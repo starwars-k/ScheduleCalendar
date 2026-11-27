@@ -1,4 +1,6 @@
 import 'dart:convert';
+
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:calendar_frontend/initialSetupPage.dart';
@@ -123,97 +125,195 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16,16,16,110),
-      children: [
-        Text(
-          _isJapanese ? '言語 (Language)' : 'Language',
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+    const Color appleRed = Color(0xFFFF3B30);
+    const Color appleGroupedBg = Color(0xFFF2F2F7);
+    const Color appleHairline = Color(0xFFE5E5EA);
+    const Color appleSecondaryLabel = Color(0xFF8E8E93);
+
+    Widget buildSectionHeader(String title) {
+      return Padding(
+        padding: const EdgeInsets.only(left: 16, bottom: 6),
+        child: Text(
+          title,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.4,
+            color: appleSecondaryLabel,
+          ),
         ),
-        const SizedBox(height: 8),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: DropdownButtonFormField<String>(
-              initialValue: _selectedLanguage,
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.language),
-                border: OutlineInputBorder(),
-              ),
-              items: _languageOptions.entries.map((entry) {
-                return DropdownMenuItem<String>(
-                  value: entry.key,
-                  child: Text(entry.value),
-                );
-              }).toList(),
-              onChanged: _isSaving
-                  ? null
-                  : (String? newValue) {
-                      if (newValue != null && newValue != _selectedLanguage) {
-                        _updateSettings(nextLanguage: newValue);
-                      }
-                    },
+      );
+    }
+
+    return Container(
+      color: appleGroupedBg,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+        children: [
+          buildSectionHeader(_isJapanese ? '言語 (LANGUAGE)' : 'LANGUAGE'),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                const Icon(CupertinoIcons.globe, color: appleRed, size: 22),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    _isJapanese ? '表示言語' : 'App Language',
+                    style: const TextStyle(fontSize: 15, color: Colors.black),
+                  ),
+                ),
+                DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedLanguage,
+                    icon: const Icon(
+                      CupertinoIcons.chevron_up_chevron_down,
+                      size: 16,
+                      color: appleSecondaryLabel,
+                    ),
+                    style: const TextStyle(fontSize: 15, color: appleSecondaryLabel),
+                    items: _languageOptions.entries.map((entry) {
+                      return DropdownMenuItem<String>(
+                        value: entry.key,
+                        child: Text(entry.value),
+                      );
+                    }).toList(),
+                    onChanged: _isSaving
+                        ? null
+                        : (String? newValue) {
+                            if (newValue != null && newValue != _selectedLanguage) {
+                              _updateSettings(nextLanguage: newValue);
+                            }
+                          },
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
-        const SizedBox(height: 24),
-        Text(
-          _isJapanese ? 'モジュール' : 'Modules',
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        Card(
-          child: Column(
-            children: [
-              SwitchListTile(
-                secondary: const Icon(Icons.check_circle_outline),
-                title: Text(_isJapanese ? 'To-Do リスト' : 'To-Do List'),
-                subtitle: Text(_isJapanese 
-                  ? 'To-Do タブを表示し、期限タスクをカレンダーと同期します'
-                  : 'Show To-Do List tab & sync due tasks with calendar'),
-                value: _todoEnabled,
-                onChanged: _isSaving
-                    ? null
-                    : (val) => _updateSettings(
-                          nextTodo: val,
-                          nextPayroll: _payrollEnabled,
+          const SizedBox(height: 22),
+          buildSectionHeader(_isJapanese ? 'モジュール' : 'MODULES'),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  child: Row(
+                    children: [
+                      const Icon(CupertinoIcons.checkmark_circle, color: appleRed, size: 22),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _isJapanese ? 'To-Do リスト' : 'To-Do List',
+                              style: const TextStyle(fontSize: 15, color: Colors.black),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _isJapanese
+                                  ? 'To-Do タブを表示し、期限タスクをカレンダーと同期'
+                                  : 'Show To-Do tab & sync due tasks with calendar',
+                              style: const TextStyle(fontSize: 12, color: appleSecondaryLabel),
+                            ),
+                          ],
                         ),
-              ),
-              const Divider(height: 1),
-              SwitchListTile(
-                secondary: const Icon(Icons.payments_outlined),
-                title: Wrap(
-                  spacing: 8,
-                  crossAxisAlignment: WrapCrossAlignment.center,
+                      ),
+                      CupertinoSwitch(
+                        value: _todoEnabled,
+                        activeTrackColor: appleRed,
+                        onChanged: _isSaving
+                            ? null
+                            : (val) => _updateSettings(
+                                  nextTodo: val,
+                                  nextPayroll: _payrollEnabled,
+                                ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1, thickness: 0.5, indent: 50, color: appleHairline),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        CupertinoIcons.money_dollar_circle,
+                        color: appleSecondaryLabel,
+                        size: 22,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Wrap(
+                              spacing: 8,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                Text(
+                                  _isJapanese ? '給与計算 (Payroll)' : 'Payroll',
+                                  style: const TextStyle(fontSize: 15, color: Colors.black),
+                                ),
+                                _buildComingSoonBadge(),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _isJapanese
+                                  ? 'シフト・収入管理用の給与タブを表示します'
+                                  : 'Show Payroll tab for shift & income tracking',
+                              style: const TextStyle(fontSize: 12, color: appleSecondaryLabel),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const CupertinoSwitch(value: false, onChanged: null),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 22),
+          buildSectionHeader(_isJapanese ? 'アカウント' : 'ACCOUNT'),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => widget.onLogout(),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                child: Row(
                   children: [
-                    Text(_isJapanese ? '給与計算(Payroll)' : 'Payroll'),
-                    _buildComingSoonBadge(),
+                    const Icon(Icons.logout_rounded, color: appleRed, size: 21),
+                    const SizedBox(width: 12),
+                    Text(
+                      _isJapanese ? 'ログアウト' : 'Log Out',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: appleRed,
+                      ),
+                    ),
                   ],
                 ),
-                subtitle: Text(
-                  _isJapanese
-                    ? 'シフト・収入管理用の給与タブを表示します'
-                    : 'Show Payroll tab for shift & income tracking'),
-                value: false,
-                onChanged: null,
               ),
-            ],
+            ),
           ),
-        ),
-        const SizedBox(height: 24),
-        Text(
-          _isJapanese ? 'アカウント' : 'Account',
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        Card(
-          child: ListTile(
-            leading: const Icon(Icons.logout, color: Colors.redAccent),
-            title: Text(_isJapanese ? 'ログアウト' : 'Log Out'),
-            onTap: () => widget.onLogout(),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
