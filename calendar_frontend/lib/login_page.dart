@@ -142,7 +142,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _showForgotPasswordModal() async {
-    final identifierCtrl = TextEditingController(text: _usernameController.text.trim());
+    final emailCtrl = TextEditingController();
     final resetTokenCtrl = TextEditingController();
     final newPasswordCtrl = TextEditingController();
     bool stepTwo = false;
@@ -164,12 +164,20 @@ class _LoginPageState extends State<LoginPage> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModalState) {
           Future<void> requestResetCode() async {
-            final idText = identifierCtrl.text.trim();
-            if (idText.isEmpty) {
+            final emailText = emailCtrl.text.trim();
+            if (emailText.isEmpty) {
               setModalState(() {
                 modalError = _isJapanese
-                    ? 'メールアドレスまたはユーザー名を入力してください。'
-                    : 'Please enter your email or username.';
+                    ? 'メールアドレスを入力してください。'
+                    : 'Please enter your email address.';
+              });
+              return;
+            }
+            if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(emailText)) {
+              setModalState(() {
+                modalError = _isJapanese
+                    ? '有効なメールアドレスを入力してください。'
+                    : 'Please enter a valid email address.';
               });
               return;
             }
@@ -181,7 +189,7 @@ class _LoginPageState extends State<LoginPage> {
               final res = await http.post(
                 Uri.parse('${widget.backendBaseUrl}/api/auth/forgot-password'),
                 headers: {'Content-Type': 'application/json'},
-                body: jsonEncode({'identifier': idText}),
+                body: jsonEncode({'email': emailText}),
               );
               final Map<String, dynamic> body = res.body.isNotEmpty
                   ? jsonDecode(res.body) as Map<String, dynamic>
@@ -204,7 +212,9 @@ class _LoginPageState extends State<LoginPage> {
               } else {
                 setModalState(() {
                   modalError = body['error']?.toString() ??
-                      (_isJapanese ? 'アカウントが見つかりません。' : 'Account not found.');
+                      (_isJapanese
+                          ? 'このメールアドレスのアカウントが見つかりません。'
+                          : 'No account found with that email address.');
                 });
               }
             } catch (_) {
@@ -316,8 +326,8 @@ class _LoginPageState extends State<LoginPage> {
                       stepTwo
                           ? (modalInfo ?? '')
                           : (_isJapanese
-                              ? '登録済みのメールアドレスまたはユーザー名を入力してください。'
-                              : 'Enter your registered email address or username.'),
+                              ? '登録済みのメールアドレスを入力してください。'
+                              : 'Enter your registered email address.'),
                       style: const TextStyle(fontSize: 13, color: appleSecondaryLabel),
                       textAlign: TextAlign.center,
                     ),
@@ -333,11 +343,12 @@ class _LoginPageState extends State<LoginPage> {
                             Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                               child: TextField(
-                                controller: identifierCtrl,
+                                controller: emailCtrl,
                                 enabled: !sending,
                                 keyboardType: TextInputType.emailAddress,
+                                autofillHints: const [AutofillHints.email],
                                 decoration: InputDecoration(
-                                  hintText: _isJapanese ? 'メールアドレスまたはユーザー名' : 'Email or Username',
+                                  hintText: _isJapanese ? 'メールアドレス' : 'Email address',
                                   hintStyle: const TextStyle(color: CupertinoColors.placeholderText),
                                   border: InputBorder.none,
                                 ),
@@ -417,6 +428,9 @@ class _LoginPageState extends State<LoginPage> {
         },
       ),
     );
+    emailCtrl.dispose();
+    resetTokenCtrl.dispose();
+    newPasswordCtrl.dispose();
   }
 
   @override

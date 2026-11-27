@@ -80,28 +80,20 @@ public class AuthController {
 
     @PostMapping("/forgot-password")
     public ResponseEntity<?> forgotPassword(@RequestBody Map<String, Object> request) {
-        String identifier = request.get("identifier") != null ? request.get("identifier").toString() : "";
-        if (identifier.trim().isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Please enter your email or username"));
+        String email = request.get("email") != null ? request.get("email").toString().trim() : "";
+        if (email.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Please enter your email address"));
+        }
+        if (!email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Please enter a valid email address"));
         }
 
-        Optional<String> tokenOpt = authService.initiatePasswordReset(identifier);
+        Optional<String> tokenOpt = authService.initiatePasswordReset(email);
         if (tokenOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "No account found with that email or username"));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "No account found with that email address"));
         }
 
         boolean emailSent = authService.isEmailDeliveryConfigured();
-        if (emailSent) {
-            return ResponseEntity.ok(Map.of(
-                    "emailSent", true,
-                    "message", "Password reset code sent to your email."
-            ));
-        }
-        return ResponseEntity.ok(Map.of(
-                "emailSent", false,
-                "resetToken", tokenOpt.get(),
-                "message", "Use the reset code below to set a new password."
-        ));
     }
 
     @PostMapping("/reset-password")

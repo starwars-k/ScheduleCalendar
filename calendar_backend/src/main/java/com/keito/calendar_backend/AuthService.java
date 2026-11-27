@@ -157,31 +157,17 @@ public class AuthService {
         return resendApiKey != null && !resendApiKey.isBlank();
     }
 
-    public Optional<String> initiatePasswordReset(String identifier) {
-        String normalized = identifier.trim().toLowerCase();
-        Optional<User> userOpt = normalized.contains("@")
-                ? userRepository.findByEmail(normalized)
-                : userRepository.findByUsername(normalized);
-        if (userOpt.isEmpty() && !normalized.contains("@")) {
-            userOpt = userRepository.findByEmail(normalized);
+    public Optional<String> initiatePasswordReset(String email) {
+        if (email == null || email.isBlank()) {
+            return Optional.empty();
         }
+        String normalizedEmail = email.trim().toLowerCase();
+        Optional<User> userOpt = userRepository.findByEmail(normalizedEmail);
         if (userOpt.isEmpty()) {
             return Optional.empty();
         }
 
         User user = userOpt.get();
-        long expiresAt = System.currentTimeMillis() + (1000L * 60 * 15); // 15 min
-        String payload = "reset:" + user.getId() + ":" + expiresAt;
-        String signature = sign(payload);
-        String rawToken = payload + ":" + signature;
-        String resetToken = Base64.getUrlEncoder()
-                .withoutPadding()
-                .encodeToString(rawToken.getBytes(StandardCharsets.UTF_8));
-
-        if (isEmailDeliveryConfigured() && user.getEmail() != null && !user.getEmail().isBlank()) {
-            sendResetEmailViaResend(user.getEmail(), resetToken);
-        }
-        return Optional.of(resetToken);
     }
 
     @Transactional
