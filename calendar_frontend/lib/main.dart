@@ -1705,6 +1705,7 @@ class _CalendarPageState extends State<CalendarPage> {
     }
 
     Widget buildAppleTopHeader(double screenWidth) {
+      final bool isPhone = screenWidth < 600;
       final bool isCompact = screenWidth < 400;
       final String yearText = '${_focusedDay.year}';
       final String monthTitle = isJapanese
@@ -1722,10 +1723,17 @@ class _CalendarPageState extends State<CalendarPage> {
         ),
         child: SafeArea(
           bottom: false,
+          minimum: EdgeInsets.only(top: isPhone ? 16 : 0),
           child: Padding(
-            padding: EdgeInsets.fromLTRB(isCompact ? 12 : 16, 6, isCompact ? 8 : 12, 8),
+            padding: EdgeInsets.fromLTRB(
+              isCompact ? 12 : 16,
+              isPhone ? 10 : 6,
+              isCompact ? 8 : 12,
+              8,
+            ),
             child: activeTab == 'calendar'
                 ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       // Apple Calendar Year + Bold Month Title (Tap to jump date)
                       Expanded(
@@ -2263,7 +2271,8 @@ class _CalendarPageState extends State<CalendarPage> {
       );
     }
 
-    Widget buildAppleBottomBar() {
+    Widget buildAppleBottomBar(double screenWidth) {
+      final bool isPhone = screenWidth < 600;
       return ClipRect(
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
@@ -2274,103 +2283,107 @@ class _CalendarPageState extends State<CalendarPage> {
             ),
             child: SafeArea(
               top: false,
-              child: SizedBox(
-                height: 54,
-                child: Row(
-                  children: [
-                    if (activeTab == 'calendar')
-                      Padding(
-                        padding: const EdgeInsets.only(left: 12),
-                        child: CupertinoButton(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          minSize: 32,
-                          onPressed: () async {
-                            final now = DateTime.now();
-                            final bool yearChanged = now.year != _focusedDay.year;
-                            setState(() {
-                              _focusedDay = now;
-                              _selectedDay = now;
-                            });
-                            if (yearChanged) {
-                              await fetchEventsFromJava(targetYear: now.year);
-                            }
-                          },
-                          child: Text(
-                            isJapanese ? '今日' : 'Today',
-                            style: const TextStyle(
-                              color: appleRed,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
+              minimum: EdgeInsets.only(bottom: isPhone ? 18 : 0),
+              child: Padding(
+                padding: EdgeInsets.only(top: isPhone ? 4 : 0),
+                child: SizedBox(
+                  height: 54,
+                  child: Row(
+                    children: [
+                      if (activeTab == 'calendar')
+                        Padding(
+                          padding: const EdgeInsets.only(left: 12),
+                          child: CupertinoButton(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            minSize: 32,
+                            onPressed: () async {
+                              final now = DateTime.now();
+                              final bool yearChanged = now.year != _focusedDay.year;
+                              setState(() {
+                                _focusedDay = now;
+                                _selectedDay = now;
+                              });
+                              if (yearChanged) {
+                                await fetchEventsFromJava(targetYear: now.year);
+                              }
+                            },
+                            child: Text(
+                              isJapanese ? '今日' : 'Today',
+                              style: const TextStyle(
+                                color: appleRed,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    Expanded(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: List.generate(tabKeys.length, (index) {
-                          final key = tabKeys[index];
-                          final bool selected = index == _currentTabIndex;
-                          late IconData icon;
-                          late String label;
-                          switch (key) {
-                            case 'todo':
-                              icon = selected
-                                  ? CupertinoIcons.checkmark_circle_fill
-                                  : CupertinoIcons.checkmark_circle;
-                              label = 'To-Do';
-                              break;
-                            case 'payroll':
-                              icon = selected
-                                  ? CupertinoIcons.money_dollar_circle_fill
-                                  : CupertinoIcons.money_dollar_circle;
-                              label = isJapanese ? '給与' : 'Payroll';
-                              break;
-                            case 'settings':
-                              icon = selected ? CupertinoIcons.gear_solid : CupertinoIcons.gear;
-                              label = isJapanese ? '設定' : 'Settings';
-                              break;
-                            case 'calendar':
-                            default:
-                              icon = selected ? CupertinoIcons.calendar_today : CupertinoIcons.calendar;
-                              label = isJapanese ? 'カレンダー' : 'Calendar';
-                              break;
-                          }
-                          return GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () async {
-                              setState(() => _currentTabIndex = index);
-                              if (key == 'calendar') {
-                                await fetchEventsFromJava();
-                              }
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    icon,
-                                    size: 22,
-                                    color: selected ? appleRed : appleSecondaryLabel,
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    label,
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                      Expanded(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: List.generate(tabKeys.length, (index) {
+                            final key = tabKeys[index];
+                            final bool selected = index == _currentTabIndex;
+                            late IconData icon;
+                            late String label;
+                            switch (key) {
+                              case 'todo':
+                                icon = selected
+                                    ? CupertinoIcons.checkmark_circle_fill
+                                    : CupertinoIcons.checkmark_circle;
+                                label = 'To-Do';
+                                break;
+                              case 'payroll':
+                                icon = selected
+                                    ? CupertinoIcons.money_dollar_circle_fill
+                                    : CupertinoIcons.money_dollar_circle;
+                                label = isJapanese ? '給与' : 'Payroll';
+                                break;
+                              case 'settings':
+                                icon = selected ? CupertinoIcons.gear_solid : CupertinoIcons.gear;
+                                label = isJapanese ? '設定' : 'Settings';
+                                break;
+                              case 'calendar':
+                              default:
+                                icon = selected ? CupertinoIcons.calendar_today : CupertinoIcons.calendar;
+                                label = isJapanese ? 'カレンダー' : 'Calendar';
+                                break;
+                            }
+                            return GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () async {
+                                setState(() => _currentTabIndex = index);
+                                if (key == 'calendar') {
+                                  await fetchEventsFromJava();
+                                }
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      icon,
+                                      size: 22,
                                       color: selected ? appleRed : appleSecondaryLabel,
                                     ),
-                                  ),
-                                ],
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      label,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                                        color: selected ? appleRed : appleSecondaryLabel,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          );
-                        }),
+                            );
+                          }),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -2433,7 +2446,7 @@ class _CalendarPageState extends State<CalendarPage> {
               ),
             ],
           ),
-          bottomNavigationBar: buildAppleBottomBar(),
+          bottomNavigationBar: buildAppleBottomBar(constraints.maxWidth),
         );
       },
     );
