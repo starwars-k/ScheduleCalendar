@@ -188,6 +188,7 @@ class _SettingsPageState extends State<SettingsPage> {
             _language = updated.language;
             _currency = updated.currency;
             _enableTodoList = updated.enableTodoList;
+            _enablePayroll = updated.enablePayroll;
             _enableNotification = updated.enableNotifications;
             _birthday = updated.birthday.isNotEmpty ? DateTime.tryParse(updated.birthday) : null;
           });
@@ -278,6 +279,34 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _showLogoutConfirmDialog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(_isJa ? 'ログアウト' : 'Log Out'),
+        content: Text(
+          _isJa
+              ? '本当にログアウトしますか？'
+              : 'Are you sure you want to log out?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(_isJa ? 'キャンセル' : 'Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: appleRed),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(_isJa ? 'ログアウト' : 'Log Out'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      widget.onLogout();
+    }
+  }
+
   void _showSnack(String msg, {bool isError = false}) {
     if (!mounted) return;
     final messenger = ScaffoldMessenger.maybeOf(context);
@@ -327,15 +356,6 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: appleGroupedBg,
-      appBar: AppBar(
-        backgroundColor: appleGroupedBg,
-        elevation: 0,
-        title: Text(
-          _isJa ? '設定' : 'Settings',
-          style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w700),
-        ),
-        iconTheme: const IconThemeData(color: appleRed),
-      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 560),
@@ -499,6 +519,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
                 child: Column(
                   children: [
+                    // 1. Language Seetings
                     ListTile(
                       leading: const Icon(CupertinoIcons.globe, color: appleRed),
                       title: Text(_isJa ? '言語' : 'Language'),
@@ -522,34 +543,12 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                       ),
                     ),
-                    const Divider(height: 1, indent: 54, color: appleHairline),
-                    ListTile(
-                      leading: const Icon(CupertinoIcons.money_dollar_circle, color: appleRed),
-                      title: Text(_isJa ? '通貨' : 'Currency'),
-                      trailing: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _currency,
-                          items: const [
-                            DropdownMenuItem(value: 'USD', child: Text('\$ (USD)')),
-                            DropdownMenuItem(value: 'JPY', child: Text('¥ (JPY)')),
-                          ],
-                          onChanged: (v) async {
-                            if (v != null && v != _currency) {
-                              final prev = _currency;
-                              setState(() => _currency = v);
-                              final ok = await _autoSaveSettings(currencyOverride: v);
-                              if (!ok && mounted) {
-                                setState(() => _currency = prev);
-                              }
-                            }
-                          },
-                        ),
-                      ),
-                    ),
+                    
+                    // 2. Todo List Page Settings
                     const Divider(height: 1, indent: 54, color: appleHairline),
                     SwitchListTile.adaptive(
                       secondary: const Icon(CupertinoIcons.checkmark_circle, color: appleRed),
-                      title: Text(_isJa ? 'To-Doリスト' : 'To-Do List'),
+                      title: Text(_isJa ? 'Todoリスト' : 'Todo List'),
                       activeThumbColor: appleRed,
                       value: _enableTodoList,
                       onChanged: (v) async {
@@ -561,6 +560,54 @@ class _SettingsPageState extends State<SettingsPage> {
                         }
                       },
                     ),
+
+                    // 3. Payroll Page Setting
+                    const Divider(height: 1, indent: 54, color: appleHairline),
+                    ListTile(
+                      leading: const Icon(CupertinoIcons.money_dollar_circle, color: appleSecondaryLabel),
+                      title: Wrap(
+                        spacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            _isJa ? '給与計算' : 'Payroll',
+                            style: const TextStyle(color: appleSecondaryLabel),
+                          ),
+                          _buildComingSoonBadge(),
+                        ],
+                      ),
+                      trailing: const CupertinoSwitch(value: false, onChanged: null),
+                    ),
+                    
+                    // 4. Currency(通貨) Setting
+                    if(_enablePayroll) ...[
+                      const Divider(height: 1, indent: 54, color: appleHairline),
+                      ListTile(
+                        leading: const Icon(CupertinoIcons.money_dollar_circle, color: appleRed),
+                        title: Text(_isJa ? '通貨' : 'Currency'),
+                        trailing: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _currency,
+                            items: const [
+                              DropdownMenuItem(value: 'USD', child: Text('\$ (USD)')),
+                              DropdownMenuItem(value: 'JPY', child: Text('¥ (JPY)')),
+                            ],
+                            onChanged: (v) async {
+                              if (v != null && v != _currency) {
+                                final prev = _currency;
+                                setState(() => _currency = v);
+                                final ok = await _autoSaveSettings(currencyOverride: v);
+                                if (!ok && mounted) {
+                                  setState(() => _currency = prev);
+                                }
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+
+                    // 5. Notification Setting
                     const Divider(height: 1, indent: 54, color: appleHairline),
                     SwitchListTile.adaptive(
                       secondary: const Icon(CupertinoIcons.bell_fill, color: appleRed),
@@ -585,39 +632,35 @@ class _SettingsPageState extends State<SettingsPage> {
                         }
                       },
                     ),
-                    const Divider(height: 1, indent: 54, color: appleHairline),
-                    ListTile(
-                      leading: const Icon(CupertinoIcons.money_dollar_circle, color: appleSecondaryLabel),
-                      title: Wrap(
-                        spacing: 8,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(
-                            _isJa ? '給与計算' : 'Payroll',
-                            style: const TextStyle(color: appleSecondaryLabel),
-                          ),
-                          _buildComingSoonBadge(),
-                        ],
-                      ),
-                      trailing: const CupertinoSwitch(value: false, onChanged: null),
-                    ),
                   ],
                 ),
               ),
 
               // SECURITY & ACCOUNT MANAGEMENT
-              _sectionHeader(_isJa ? 'セキュリティ・アカウント管理' : 'Security & Account'),
+              _sectionHeader(_isJa ? 'セキュリティ・アカウント管理' : 'Security & Account Manage'),
               Container(
                 margin: const EdgeInsets.symmetric(horizontal: 16),
                 decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
                 child: Column(
                   children: [
+                    // Change Password
                     ListTile(
                       leading: const Icon(CupertinoIcons.lock_rotation, color: appleRed),
                       title: Text(_isJa ? 'パスワードを変更' : 'Change Password'),
                       trailing: const Icon(CupertinoIcons.chevron_forward, size: 16, color: appleSecondaryLabel),
                       onTap: _showChangePasswordDialog,
                     ),
+                    
+                    //Log Out
+                    const Divider(height: 1, indent: 54, color: appleHairline),
+                    ListTile(
+                      leading: const Icon(CupertinoIcons.square_arrow_right, color: appleRed),
+                      title: Text(_isJa ? 'ログアウト' : 'Log Out'),
+                      trailing: const Icon(CupertinoIcons.chevron_forward, size: 16, color: appleSecondaryLabel),
+                      onTap: _showLogoutConfirmDialog,
+                    ),
+
+                    //Delete Account
                     const Divider(height: 1, indent: 54, color: appleHairline),
                     ListTile(
                       leading: const Icon(CupertinoIcons.trash, color: appleRed),
