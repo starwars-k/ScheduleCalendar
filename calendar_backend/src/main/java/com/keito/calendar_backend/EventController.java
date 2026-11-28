@@ -5,6 +5,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.*;
 import java.util.*;
 
@@ -14,6 +21,14 @@ public class EventController {
 
     private final EventRepository eventRepository;
     private final UserRepository userRepository;
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(java.time.Duration.ofSeconds(5))
+            .build();
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private record HolidayEntry(LocalDate date, String localName, String englishName) {}
+    private record CachedHolidays(Instant fetchedAt, List<HolidayEntry> entries) {}
+    private final Map<String, CachedHolidays> holidayCache = new java.util.concurrent.ConcurrentHashMap<>();
+
     private final AuthService authService;
     private final TodoRepository todoRepository;
 
@@ -78,6 +93,7 @@ public class EventController {
         Long userId = userOpt.get().getId();
         List<DailyEvent> events = eventRepository.findByUserId(userId);
         ensureYearlyEventsUpTo(userId, events, targetYear);
+        ensureHolidaysForUser(userOpt.get(), events, targetYear);
         for (DailyEvent event : events) {
             String fallbackTz = event.getEventTimezone() != null ? event.getEventTimezone() : "UTC";
             if (event.getStartTimezone() == null || event.getStartTimezone().isBlank()) {
@@ -159,6 +175,115 @@ public class EventController {
             events.addAll(eventRepository.saveAll(newlyGenerated));
         }
     }
+
+    private String resolveCountryCodeFromTimezone(String timezone) {
+        if (timezone == null || timezone.isBlank()) return "US";
+        String tz = timezone.trim();
+        if (tz.equals("Asia/Tokyo") || tz.startsWith("Japan")) return "JP";
+        if (tz.startsWith("America/")) return "US";
+        if (tz.equals("Europe/London")) return "GB";
+        if (tz.equals("Asia/Seoul")) return "KR";
+        if (tz.startsWith("Australia/")) return "AU";
+        return null;
+    }
+
+    private List<HolidayEntry> getPublicHolidays(int year, String countryCode) {
+        String cacheKey = countryCode + "_" + year;
+        CachedHolidays cached = holidayCache.get(cacheKey);
+        if (cached != null && cached.fetchedAt().isAfter(Instant.now().minus(java.time.Duration.ofHours(24)))) {
+            return cached.entries();
+        }
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("https://date.nager.at/api/v3/PublicHolidays/" + year + "/" + countryCode))
+                    .timeout(java.time.Duration.ofSeconds(6))
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200 && response.body() != null) {
+                JsonNode root = objectMapper.readTree(response.body());
+                List<HolidayEntry> parsed = new ArrayList<>();
+                if (root.isArray()) {
+                    for (JsonNode node : root) {
+                        String dateStr = node.path("date").asText("");
+                        String localName = node.path("localName").asText("");
+                        String englishName = node.path("name").asText(localName);
+                        if (!dateStr.isEmpty() && !englishName.isEmpty()) {
+                            parsed.add(new HolidayEntry(
+                                    LocalDate.parse(dateStr),
+                                    localName.isEmpty() ? englishName : localName,
+                                    englishName
+                            ));
+                        }
+                    }
+                }
+                if (!parsed.isEmpty()) {
+                    holidayCache.put(cacheKey, new CachedHolidays(Instant.now(), parsed));
+                    return parsed;
+                }
+            }
+        } catch (Exception ignored) {
+            // Keep cached list if external holiday API is temporarily unreachable
+        }
+        return cached != null ? cached.entries() : List.of();
+    }
+
+    private void ensureHolidaysForUser(User user, List<DailyEvent> events, Integer targetYear) {
+        String countryCode = resolveCountryCodeFromTimezone(user.getTimezone());
+        if (countryCode == null) return;
+
+        ZoneId userZone = resolveZoneId(user.getTimezone(), ZoneOffset.UTC);
+        int baseYear = (targetYear != null) ? targetYear : LocalDate.now(userZone).getYear();
+        boolean isJapanese = "ja".equalsIgnoreCase(user.getLanguage());
+
+        Set<String> existingHolidayKeys = new HashSet<>();
+        for (DailyEvent ev : events) {
+            if (ev.getSeriesId() != null && ev.getSeriesId().startsWith("HOLIDAY_")) {
+                existingHolidayKeys.add(ev.getSeriesId());
+            }
+        }
+
+        List<DailyEvent> toInsert = new ArrayList<>();
+        for (int year : List.of(baseYear, baseYear + 1)) {
+            for (HolidayEntry h : getPublicHolidays(year, countryCode)) {
+                String holidayKey = "HOLIDAY_" + countryCode + "_" + h.date() + "_" + h.englishName();
+                if (existingHolidayKeys.contains(holidayKey)) continue;
+
+                LocalDateTime startLocal = h.date().atStartOfDay();
+                LocalDateTime endLocal = h.date().atTime(23, 59, 59);
+
+                DailyEvent holidayEvent = new DailyEvent();
+                holidayEvent.setUserId(user.getId());
+                holidayEvent.setTitle(isJapanese ? h.localName() : h.englishName());
+                holidayEvent.setEventType("Holiday");
+                holidayEvent.setDescription("Public Holiday (" + countryCode + ")");
+                holidayEvent.setIsAllDay(true);
+                holidayEvent.setStartTime(toUtc(startLocal, userZone));
+                holidayEvent.setEndTime(toUtc(endLocal, userZone));
+                holidayEvent.setEventTimezone(userZone.getId());
+                holidayEvent.setStartTimezone(userZone.getId());
+                holidayEvent.setEndTimezone(userZone.getId());
+                holidayEvent.setIsRepeating(false);
+                holidayEvent.setRepeatType("None");
+                holidayEvent.setEndOn(false);
+                holidayEvent.setIsTodo(false);
+                holidayEvent.setIsComplete(false);
+                holidayEvent.setIsNotificationEnabled(false);
+                holidayEvent.setNotificationMinutesBefore(15);
+                holidayEvent.setSeriesId(holidayKey);
+
+                toInsert.add(holidayEvent);
+                existingHolidayKeys.add(holidayKey);
+            }
+        }
+
+        if (!toInsert.isEmpty()) {
+            events.addAll(eventRepository.saveAll(toInsert));
+        }
+    }
+
+
 
     private ZonedDateTime defaultRepeatLimit(ZonedDateTime baseStart, String repeatType) {
         if (repeatType == null) return baseStart.plusYears(1);
