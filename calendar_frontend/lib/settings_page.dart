@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:calendar_frontend/initialSetupPage.dart';
+import 'package:calendar_frontend/notification_service.dart';
 
 class SettingsPage extends StatefulWidget {
   final String backendBaseUrl;
@@ -119,6 +120,7 @@ class _SettingsPageState extends State<SettingsPage> {
     String? currencyOverride,
     String? languageOverride,
     bool? enableTodoListOverride,
+    bool? enableNotificationsOverride,
     bool showSuccessToast = false,
   }) async {
     final nextUsername = (usernameOverride ?? _savedUsername).trim();
@@ -145,6 +147,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final nextCurrency = currencyOverride ?? _currency;
     final nextLanguage = languageOverride ?? _language;
     final nextTodo = enableTodoListOverride ?? _enableTodoList;
+    final nextNotification = enableNotificationsOverride ?? _enableNotification;
 
     try {
       final response = await http.put(
@@ -162,7 +165,7 @@ class _SettingsPageState extends State<SettingsPage> {
           'language': nextLanguage,
           'enableTodoList': nextTodo,
           'enablePayroll': false,
-          'enableNotifications': false,
+          'enableNotifications': nextNotification,
           'setupComplete': true,
         }),
       );
@@ -185,6 +188,7 @@ class _SettingsPageState extends State<SettingsPage> {
             _language = updated.language;
             _currency = updated.currency;
             _enableTodoList = updated.enableTodoList;
+            _enableNotification = updated.enableNotifications;
             _birthday = updated.birthday.isNotEmpty ? DateTime.tryParse(updated.birthday) : null;
           });
         }
@@ -558,20 +562,28 @@ class _SettingsPageState extends State<SettingsPage> {
                       },
                     ),
                     const Divider(height: 1, indent: 54, color: appleHairline),
-                    ListTile(
-                      leading: const Icon(CupertinoIcons.bell, color: appleSecondaryLabel),
-                      title: Wrap(
-                        spacing: 8,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(
-                            _isJa ? '通知' : 'Notifications',
-                            style: const TextStyle(color: appleSecondaryLabel),
-                          ),
-                          _buildComingSoonBadge(),
-                        ],
+                    SwitchListTile.adaptive(
+                      secondary: const Icon(CupertinoIcons.bell_fill, color: appleRed),
+                      title: Text(_isJa ? '通知' : 'Notifications'),
+                      subtitle: Text(
+                        _isJa
+                            ? '通知が有効な予定を事前にお知らせします'
+                            : 'Receive reminders for events with alerts enabled',
+                        style: const TextStyle(fontSize: 12, color: appleSecondaryLabel),
                       ),
-                      trailing: const CupertinoSwitch(value: false, onChanged: null),
+                      activeThumbColor: appleRed,
+                      value: _enableNotification,
+                      onChanged: (v) async {
+                        final prev = _enableNotification;
+                        setState(() => _enableNotification = v);
+                        if (v) {
+                          await requestBrowserNotificationPermission();
+                        }
+                        final ok = await _autoSaveSettings(enableNotificationsOverride: v);
+                        if (!ok && mounted) {
+                          setState(() => _enableNotification = prev);
+                        }
+                      },
                     ),
                     const Divider(height: 1, indent: 54, color: appleHairline),
                     ListTile(

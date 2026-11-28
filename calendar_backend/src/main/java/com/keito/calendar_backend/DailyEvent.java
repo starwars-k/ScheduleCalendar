@@ -45,6 +45,13 @@ public class DailyEvent {
     @JsonProperty("isComplete")
     @Column(nullable = false, columnDefinition = "boolean default false")
     private boolean isComplete = false;
+
+    @JsonProperty("isNotificationEnabled")
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean isNotificationEnabled = false;
+
+    @Column(nullable = false, columnDefinition = "integer default 15")
+    private Integer notificationMinutesBefore = 15;
   
     public DailyEvent(){}
     
@@ -114,4 +121,10 @@ public class DailyEvent {
 
     public boolean getIsComplete() { return isComplete; }
     public void setIsComplete(boolean isComplete) { this.isComplete = isComplete; }
+
+    public boolean getIsNotificationEnabled() { return isNotificationEnabled; }
+    public void setIsNotificationEnabled(boolean isNotificationEnabled) { this.isNotificationEnabled = isNotificationEnabled; }
+
+    public Integer getNotificationMinutesBefore() { return notificationMinutesBefore != null ? notificationMinutesBefore : 15; }
+    public void setNotificationMinutesBefore(Integer notificationMinutesBefore) { this.notificationMinutesBefore = notificationMinutesBefore != null ? notificationMinutesBefore : 15; }
 }

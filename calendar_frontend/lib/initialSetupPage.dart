@@ -71,15 +71,23 @@ class UserAppSettings {
   UserAppSettings copyWith({
     String? timezone,
     String? language,
+    String? email,
+    String? birthday,
+    String? currency,
     bool? enableTodoList,
     bool? enablePayroll,
+    bool? enableNotifications,
     bool? setupComplete,
   }) {
     return UserAppSettings(
       timezone: timezone ?? this.timezone,
       language: language ?? this.language,
+      email: email ?? this.email,
+      birthday: birthday ?? this.birthday,
+      currency: currency ?? this.currency,
       enableTodoList: enableTodoList ?? this.enableTodoList,
       enablePayroll: enablePayroll ?? this.enablePayroll,
+      enableNotifications: enableNotifications ?? this.enableNotifications,
       setupComplete: setupComplete ?? this.setupComplete,
     );
   }

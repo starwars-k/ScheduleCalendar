@@ -17,6 +17,8 @@ class DailyEvent {
   final bool isTodo;
   final int? linkedTodoId;
   final bool isComplete;
+  final bool isNotificationEnabled;
+  final int notificationMinutesBefore;
 
   DailyEvent({
     this.id,
@@ -37,6 +39,8 @@ class DailyEvent {
     this.isTodo = false,
     this.linkedTodoId,
     this.isComplete = false,
+    this.isNotificationEnabled = false,
+    this.notificationMinutesBefore = 15,
   });
 
   factory DailyEvent.fromJson(Map<String, dynamic> json) {
@@ -72,6 +76,10 @@ class DailyEvent {
           ? json['linkedTodoId']
           : int.tryParse(json['linkedTodoId']?.toString() ?? ''),
       isComplete: json['isComplete'] == true,
+      isNotificationEnabled: json['isNotificationEnabled'] == true,
+      notificationMinutesBefore: json['notificationMinutesBefore'] is int
+          ? json['notificationMinutesBefore'] as int
+          : (int.tryParse(json['notificationMinutesBefore']?.toString() ?? '') ?? 15),
     );
   }
 
@@ -143,5 +151,7 @@ class DailyEvent {
     'isTodo': isTodo,
     'linkedTodoId': linkedTodoId,
     'isComplete': isComplete,
+    'isNotificationEnabled': isNotificationEnabled,
+    'notificationMinutesBefore': notificationMinutesBefore,
   };
 }

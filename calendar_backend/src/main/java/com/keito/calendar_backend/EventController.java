@@ -148,6 +148,8 @@ public class EventController {
                 occurrence.setEndOn(latest.getEndOn());
                 occurrence.setRepeatEndOn(latest.getRepeatEndOn());
                 occurrence.setSeriesId(entry.getKey());
+                occurrence.setIsNotificationEnabled(latest.getIsNotificationEnabled());
+                occurrence.setNotificationMinutesBefore(latest.getNotificationMinutesBefore());
                 newlyGenerated.add(occurrence);
                 step++;
             }
@@ -279,7 +281,8 @@ public class EventController {
             occurrence.setEndOn(Boolean.TRUE.equals(event.getEndOn()));
             occurrence.setRepeatEndOn(toUtc(event.getRepeatEndOn(), startZone));
             occurrence.setSeriesId(seriesId);
-
+            occurrence.setIsNotificationEnabled(Boolean.TRUE.equals(event.getIsNotificationEnabled()));
+            occurrence.setNotificationMinutesBefore(event.getNotificationMinutesBefore());
             eventsToSave.add(occurrence);
             safetyCount++;
         }
@@ -374,6 +377,8 @@ public class EventController {
         existing.setRepeatType(shouldRepeat ? updatedEvent.getRepeatType() : "None");
         existing.setEndOn(shouldRepeat && Boolean.TRUE.equals(updatedEvent.getEndOn()));
         existing.setRepeatEndOn(shouldRepeat ? toUtc(updatedEvent.getRepeatEndOn(), startZone) : null);
+        existing.setIsNotificationEnabled(Boolean.TRUE.equals(updatedEvent.getIsNotificationEnabled()));
+        existing.setNotificationMinutesBefore(updatedEvent.getNotificationMinutesBefore());
 
         if(!shouldRepeat){
             existing.setSeriesId(null);
@@ -425,6 +430,8 @@ public class EventController {
             occurrence.setEndOn(Boolean.TRUE.equals(updatedEvent.getEndOn()));
             occurrence.setRepeatEndOn(toUtc(updatedEvent.getRepeatEndOn(), startZone));
             occurrence.setSeriesId(seriesId);
+            occurrence.setIsNotificationEnabled(Boolean.TRUE.equals(updatedEvent.getIsNotificationEnabled()));
+            occurrence.setNotificationMinutesBefore(updatedEvent.getNotificationMinutesBefore());
 
             additionalEvents.add(occurrence);
             safetyCount++;

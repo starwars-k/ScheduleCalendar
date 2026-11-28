@@ -204,6 +204,8 @@ class _EventDetailPageState extends State<EventDetailPage> {
               : null,
           'isTodo': widget.event.isTodo,
           'isComplete': widget.event.isComplete,
+          'isNotificationEnabled': widget.event.isNotificationEnabled,
+          'notificationMinutesBefore': widget.event.notificationMinutesBefore,
         };
         final response = await http.put(
           Uri.parse('$_baseUrl/api/events/${widget.event.id}'),
@@ -430,6 +432,31 @@ class _EventDetailPageState extends State<EventDetailPage> {
                                     widget.isJapanese
                                         ? '繰り返し: ${widget.event.repeatType}'
                                         : 'Repeats ${widget.event.repeatType}',
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                      color: _appleRed,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                            if (widget.event.isNotificationEnabled) ...[
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    CupertinoIcons.bell_fill,
+                                    size: 14,
+                                    color: _appleRed,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    widget.event.notificationMinutesBefore == 0
+                                        ? (widget.isJapanese ? '予定の時刻に通知' : 'Alert at time of event')
+                                        : (widget.isJapanese
+                                            ? '${widget.event.notificationMinutesBefore}分前に通知'
+                                            : 'Alert ${widget.event.notificationMinutesBefore} min before'),
                                     style: const TextStyle(
                                       fontSize: 14,
                                       fontWeight: FontWeight.w500,

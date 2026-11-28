@@ -4,6 +4,7 @@ import 'package:calendar_frontend/initialSetupPage.dart';
 import 'package:calendar_frontend/event_model.dart';
 import 'package:calendar_frontend/todo_list_page.dart';
 import 'package:calendar_frontend/settings_page.dart';
+import 'package:calendar_frontend/notification_service.dart';
 
 import 'package:table_calendar/table_calendar.dart';
 import 'package:http/http.dart' as http;
@@ -209,6 +210,10 @@ class _CalendarPageState extends State<CalendarPage> {
   bool _isTodo = false;
   bool _setDueTime = false;
   bool _isComplete = false;
+  bool _isNotificationEnabled = false;
+  int _notificationMinutesBefore = 15;
+  Timer? _notificationTimer;
+  final Set<String> _sentNotificationKeys = {};
   int _currentTabIndex = 0;
   late UserAppSettings _activeSettings;
   bool _showStartTimezonePicker = false;
@@ -275,7 +280,72 @@ class _CalendarPageState extends State<CalendarPage> {
     _startTimezone = _defaultUserTimezone();
     _endTimezone = _defaultUserTimezone();
     _initLoadEvents();
+    _startNotificationChecker();
   }
+
+  @override
+  void dispose() {
+    _notificationTimer?.cancel();
+    _titleController.dispose();
+    _memoController.dispose();
+    super.dispose();
+  }
+
+  void _startNotificationChecker() {
+    _notificationTimer?.cancel();
+    _notificationTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      _checkDueNotifications();
+    });
+  }
+
+  void _checkDueNotifications() {
+    if (!mounted || !_activeSettings.enableNotifications) return;
+    final now = DateTime.now();
+    final bool isJa = _activeSettings.language == 'ja';
+
+    for (final event in _events) {
+      if (!event.isNotificationEnabled || event.isComplete) continue;
+      final DateTime baseTime = event.isTodo
+          ? (event.isAllDay
+              ? DateTime(event.displayEndTime.year, event.displayEndTime.month, event.displayEndTime.day, 9, 0)
+              : event.displayEndTime)
+          : (event.isAllDay
+              ? DateTime(event.displayEffectiveTime.year, event.displayEffectiveTime.month, event.displayEffectiveTime.day, 9, 0)
+              : event.displayEffectiveTime);
+      final DateTime notifyAt = baseTime.subtract(Duration(minutes: event.notificationMinutesBefore));
+      final diffSeconds = now.difference(notifyAt).inSeconds;
+      if (diffSeconds >= 0 && diffSeconds < 120) {
+        final key = '${event.id ?? event.title}_${notifyAt.toIso8601String()}';
+        if (_sentNotificationKeys.contains(key)) continue;
+        _sentNotificationKeys.add(key);
+
+        final String timeLabel = DateFormat('HH:mm').format(baseTime);
+        final String body = isJa
+            ? '開始/期限時刻: $timeLabel (${event.eventType})'
+            : 'Starts/Due at $timeLabel (${event.eventType})';
+        showBrowserNotification(event.title, body);
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 80),
+            backgroundColor: const Color(0xFF1C1C1E),
+            content: Row(
+              children: [
+                const Icon(CupertinoIcons.bell_fill, color: Color(0xFFFF3B30), size: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '${event.title} ($timeLabel)',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+  }  
 
   Future<void> _initLoadEvents() async {
     final bool hasCache = await _loadCachedEvents(_focusedDay.year);
@@ -322,6 +392,8 @@ class _CalendarPageState extends State<CalendarPage> {
       :false;
     _setDueTime = (_isTodo && isEditing) ? !eventToEdit.isAllDay : false;
     _isComplete = isEditing ? eventToEdit.isComplete : false;
+    _isNotificationEnabled = isEditing ? eventToEdit.isNotificationEnabled : false;
+    _notificationMinutesBefore = isEditing ? eventToEdit.notificationMinutesBefore : 15;
     _startTime = isEditing
         ? (eventToEdit.displayStartTime ?? eventToEdit.displayEndTime.subtract(const Duration(hours: 1)))
         : DateTime(initialDate.year, initialDate.month, initialDate.day, DateTime.now().hour);
@@ -1106,8 +1178,8 @@ class _CalendarPageState extends State<CalendarPage> {
                                         DropdownButtonHideUnderline(
                                           child: DropdownButton<String>(
                                             value: _eventTypes.contains(_eventType)
-                                                ? _eventType
-                                                : _eventTypes.first,
+                                              ? _eventType
+                                              : _eventTypes.first,
                                             icon: const Icon(
                                               CupertinoIcons.chevron_up_chevron_down,
                                               size: 16,
@@ -1145,10 +1217,97 @@ class _CalendarPageState extends State<CalendarPage> {
                                               }
                                             },
                                           ),
+                                        ), 
+                                      ],
+                                    ),
+                                  ),
+                                ]),
+                                const SizedBox(height: 16),
+
+                                // Card 6: Per-Event Notification Setting
+                                buildGroupedCard([
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                isJapanese ? '通知' : 'Notification',
+                                                style: const TextStyle(fontSize: 15, color: Colors.black),
+                                              ),
+                                              if (!_activeSettings.enableNotifications && _isNotificationEnabled)
+                                                Padding(
+                                                  padding: const EdgeInsets.only(top: 2),
+                                                  child: Text(
+                                                    isJapanese
+                                                        ? '※設定画面の通知がOFFのため通知されません'
+                                                        : 'Global notifications are OFF in Settings',
+                                                    style: const TextStyle(fontSize: 11, color: Color(0xFFFF3B30)),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                        CupertinoSwitch(
+                                          value: _isNotificationEnabled,
+                                          activeTrackColor: const Color(0xFFFF3B30),
+                                          onChanged: (bool val) async {
+                                            setDialogState(() => _isNotificationEnabled = val);
+                                            if (val && _activeSettings.enableNotifications) {
+                                              await requestBrowserNotificationPermission();
+                                            }
+                                          },
                                         ),
                                       ],
                                     ),
                                   ),
+                                  if (_isNotificationEnabled)
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(                                              isJapanese ? '通知タイミング' : 'Alert',
+                                            style: const TextStyle(fontSize: 15, color: Colors.black),
+                                          ),
+                                          DropdownButtonHideUnderline(
+                                            child: DropdownButton<int>(
+                                              value: [0, 5, 10, 15, 30, 60, 1440].contains(_notificationMinutesBefore)
+                                                ? _notificationMinutesBefore
+                                                : 15,
+                                              icon: const Icon(
+                                                CupertinoIcons.chevron_up_chevron_down,
+                                                size: 16,
+                                                color: Colors.grey,
+                                              ),
+                                              style: const TextStyle(fontSize: 14, color: Colors.grey),
+                                              items: [0, 5, 10, 15, 30, 60, 1440].map((mins) {
+                                                String label;
+                                                if (mins == 0) {
+                                                  label = isJapanese ? '予定の時刻' : 'At time of event';
+                                                } else if (mins < 60) {
+                                                  label = isJapanese ? '$mins分前' : '$mins min before';
+                                                } else if (mins == 60) {
+                                                  label = isJapanese ? '1時間前' : '1 hour before';
+                                                } else {
+                                                  label = isJapanese ? '1日前' : '1 day before';
+                                                }
+                                                return DropdownMenuItem<int>(value: mins, child: Text(label));
+                                              }).toList(),
+                                              onChanged: (int? val) {
+                                                if (val != null) {
+                                                  setDialogState(() => _notificationMinutesBefore = val);
+                                                }
+                                              },
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                 ]),
                               ],
                             ),
