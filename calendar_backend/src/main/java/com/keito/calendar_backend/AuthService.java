@@ -16,8 +16,11 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -360,7 +363,106 @@ public class AuthService {
         if (setupComplete != null) {
             user.setSetupComplete(setupComplete);
         }
-        return userRepository.save(user);
+        User savedUser = userRepository.save(user);
+        ensureBirthdayEventForUser(savedUser);
+        return savedUser;
+    }
+
+    @Transactional
+    public void ensureBirthdayEventForUser(User user) {
+        if (user == null || user.getId() == null) return;
+
+        String birthdaySeriesId = "BIRTHDAY_" + user.getId();
+        List<DailyEvent> existingSeries = eventRepository.findBySeriesIdAndUserId(birthdaySeriesId, user.getId());
+
+        String birthdayStr = user.getBirthday();
+        if (birthdayStr == null || birthdayStr.isBlank()) {
+            if (!existingSeries.isEmpty()) {
+                eventRepository.deleteAll(existingSeries);
+            }
+            return;
+        }
+
+        LocalDate birthDate;
+        try {
+            birthDate = LocalDate.parse(birthdayStr.trim());
+        } catch (Exception e) {
+            return;
+        }
+
+        ZoneId userZone;
+        try {
+            String tz = user.getTimezone();
+            userZone = (tz != null && !tz.isBlank()) ? ZoneId.of(tz.trim()) : ZoneOffset.UTC;
+        } catch (Exception e) {
+            userZone = ZoneOffset.UTC;
+        }
+
+        if (!existingSeries.isEmpty()) {
+            DailyEvent sample = existingSeries.get(0);
+            if (sample.getStartTime() != null) {
+                ZoneId eventZone;
+                try {
+                    eventZone = ZoneId.of(sample.getStartTimezone());
+                } catch (Exception e) {
+                    eventZone = userZone;
+                }
+                LocalDate existingLocalDate = ZonedDateTime.of(sample.getStartTime(), ZoneOffset.UTC)
+                        .withZoneSameInstant(eventZone)
+                        .toLocalDate();
+                if (existingLocalDate.getMonthValue() == birthDate.getMonthValue()
+                        && existingLocalDate.getDayOfMonth() == birthDate.getDayOfMonth()) {
+                    return;
+                }
+            }
+            eventRepository.deleteAll(existingSeries);
+        }
+
+        List<DailyEvent> allUserEvents = eventRepository.findByUserId(user.getId());
+        for (DailyEvent ev : allUserEvents) {
+            if (ev.getStartTime() == null || ev.getTitle() == null) continue;
+            String titleLower = ev.getTitle().toLowerCase();
+            if (titleLower.contains("birthday") || ev.getTitle().contains("誕生日")) {
+                LocalDate evDate = ZonedDateTime.of(ev.getStartTime(), ZoneOffset.UTC)
+                        .withZoneSameInstant(userZone)
+                        .toLocalDate();
+                if (evDate.getMonthValue() == birthDate.getMonthValue()
+                        && evDate.getDayOfMonth() == birthDate.getDayOfMonth()) {
+                    return;
+                }
+            }
+        }
+
+        int baseYear = LocalDate.now(userZone).getYear();
+        LocalDate occurrenceDate = birthDate.withYear(baseYear);
+        LocalDateTime startUtc = ZonedDateTime.of(occurrenceDate.atStartOfDay(), userZone)
+                .withZoneSameInstant(ZoneOffset.UTC)
+                .toLocalDateTime();
+        LocalDateTime endUtc = ZonedDateTime.of(occurrenceDate.atTime(23, 59, 59), userZone)
+                .withZoneSameInstant(ZoneOffset.UTC)
+                .toLocalDateTime();
+
+        boolean isJa = "ja".equalsIgnoreCase(user.getLanguage());
+        DailyEvent birthdayEvent = new DailyEvent(
+                isJa ? user.getUsername() + "の誕生日" : user.getUsername() + "'s Birthday",
+                isJa ? "自動登録された誕生日イベント" : "Automatically created birthday event",
+                startUtc,
+                endUtc,
+                "Personal",
+                true,
+                true
+        );
+        birthdayEvent.setUserId(user.getId());
+        birthdayEvent.setEventTimezone(userZone.getId());
+        birthdayEvent.setStartTimezone(userZone.getId());
+        birthdayEvent.setEndTimezone(userZone.getId());
+        birthdayEvent.setRepeatType("Yearly");
+        birthdayEvent.setEndOn(false);
+        birthdayEvent.setSeriesId(birthdaySeriesId);
+        birthdayEvent.setIsNotificationEnabled(false);
+        birthdayEvent.setNotificationMinutesBefore(15);
+
+        eventRepository.save(birthdayEvent);
     }
 
     @Transactional

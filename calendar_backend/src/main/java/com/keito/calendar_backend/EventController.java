@@ -91,6 +91,7 @@ public class EventController {
         }
 
         Long userId = userOpt.get().getId();
+        authService.ensureBirthdayEventForUser(userOpt.get());
         List<DailyEvent> events = eventRepository.findByUserId(userId);
         ensureYearlyEventsUpTo(userId, events, targetYear);
         ensureHolidaysForUser(userOpt.get(), events, targetYear);

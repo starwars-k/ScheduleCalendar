@@ -25,6 +25,7 @@ public class CalendarBackendApplication {
 				if(eventRepository.findByUserId(user.getId()).isEmpty()){
 					authService.seedDefaultEventsForUser(user.getId());
 				}
+				authService.ensureBirthdayEventForUser(user);
 			}
 		};
 	}
