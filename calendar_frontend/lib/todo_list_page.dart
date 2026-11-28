@@ -172,19 +172,27 @@ class _TodoListPageState extends State<TodoListPage> {
 
   Future<void> _deleteTodo(TodoItem todo) async {
     if (todo.id == null) return;
-    final bool? confirmed = await showDialog<bool>(
+    final bool? confirmed = await showCupertinoDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete To-Do'),
-        content: Text('Are you sure you want to delete "${todo.title}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+      builder: (ctx) => CupertinoAlertDialog(
+        title: Text(widget.isJapanese ? 'To-Doを削除' : 'Delete To-Do'),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            widget.isJapanese
+                ? '「${todo.title}」を削除してもよろしいですか？\nこの操作は取り消せません。'
+                : 'Are you sure you want to delete "${todo.title}"?\nThis action cannot be undone.',
           ),
-          TextButton(
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(widget.isJapanese ? 'キャンセル' : 'Cancel'),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete', style: TextStyle(color: Colors.redAccent)),
+            child: Text(widget.isJapanese ? '削除' : 'Delete'),
           ),
         ],
       ),
@@ -198,6 +206,29 @@ class _TodoListPageState extends State<TodoListPage> {
       if (response.statusCode == 200 || response.statusCode == 204) {
         await _fetchTodos();
         await widget.onTodoChanged();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+              content: Text(
+                widget.isJapanese ? 'To-Doを削除しました' : 'To-Do deleted',
+              ),
+            ),
+          );
+        }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+            content: Text(
+              widget.isJapanese
+                  ? '削除に失敗しました (${response.statusCode})'
+                  : 'Failed to delete (${response.statusCode})',
+            ),
+          ),
+        );
       }
     } catch (e) {
       debugPrint('Error deleting todo: $e');
