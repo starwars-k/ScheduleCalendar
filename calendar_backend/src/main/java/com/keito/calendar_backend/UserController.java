@@ -46,7 +46,7 @@ public class UserController {
         res.put("username", user.getUsername());
         res.put("email", user.getEmail() != null ? user.getEmail() : "");
         res.put("birthday", user.getBirthday() != null ? user.getBirthday() : "");
-        res.put("currency", user.getCurrency() != null ? user.getCurrency() : \"USD");
+        res.put("currency", user.getCurrency() != null ? user.getCurrency() : "USD");
         res.put("timezone", user.getTimezone());
         res.put("language", user.getLanguage());
         res.put("enableTodoList", user.isEnableTodoList());
