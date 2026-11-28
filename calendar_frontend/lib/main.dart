@@ -247,7 +247,7 @@ class _CalendarPageState extends State<CalendarPage> {
     return list;
   }
 
-  final List<String> _eventTypes = ['Task', 'Job', 'Class', 'Birthday', 'Personal'];
+  final List<String> _eventTypes = ['Task', 'Job', 'Class', 'Birthday', 'Personal', 'Holiday'];
   final List<String> _repeatOptions = ['Daily', 'Weekly', 'Biweekly', 'Monthly', 'Yearly'];
 
   Color _getEventColor(String type) {
@@ -262,8 +262,10 @@ class _CalendarPageState extends State<CalendarPage> {
         return Colors.pinkAccent;
       case 'Personal':
         return Colors.purpleAccent;
-      default:
+      case 'Holiday':
         return Colors.grey;
+      default:
+        return Colors.black;
     }
   }
 
@@ -1177,16 +1179,21 @@ class _CalendarPageState extends State<CalendarPage> {
                                         ),
                                         DropdownButtonHideUnderline(
                                           child: DropdownButton<String>(
-                                            value: _eventTypes.contains(_eventType)
+                                          value: (_eventType.isNotEmpty &&
+                                                  (_eventTypes.contains(_eventType) ||
+                                                      _eventType == 'Holiday'))
                                               ? _eventType
                                               : _eventTypes.first,
-                                            icon: const Icon(
-                                              CupertinoIcons.chevron_up_chevron_down,
-                                              size: 16,
-                                              color: Colors.grey,
-                                            ),
-                                            items: _eventTypes.map((String type) {
-                                              return DropdownMenuItem<String>(
+                                          icon: const Icon(
+                                            CupertinoIcons.chevron_up_chevron_down,
+                                            size: 16,
+                                            color: Colors.grey,
+                                          ),
+                                          items: <String>[
+                                            ..._eventTypes,
+                                            if (!_eventTypes.contains('Holiday')) 'Holiday',
+                                          ].map<DropdownMenuItem<String>>((String type) {
+                                            return DropdownMenuItem<String>(
                                                 value: type,
                                                 child: Row(
                                                   mainAxisSize: MainAxisSize.min,
