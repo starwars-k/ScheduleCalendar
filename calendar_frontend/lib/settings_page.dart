@@ -35,12 +35,8 @@ class _SettingsPageState extends State<SettingsPage> {
   late bool _enableTodoList;
   late bool _enablePayroll;
   late bool _enableNotification;
-  late TextEditingController _emailController;
-  late TextEditingController _usernameController;
   late String _savedUsername;
   late String _savedEmail;
-  bool _isEditingAccount = false;
-  bool _isSavingAccount = false;
   DateTime? _birthday;
 
   static const Color appleRed = Color(0xFFFF3B30);
@@ -59,20 +55,11 @@ class _SettingsPageState extends State<SettingsPage> {
     _enableTodoList = widget.initialSettings.enableTodoList;
     _enablePayroll = widget.initialSettings.enablePayroll;
     _enableNotification = widget.initialSettings.enableNotifications;
-    _emailController = TextEditingController(text: widget.initialSettings.email);
-    _usernameController = TextEditingController(text: widget.username);
     _savedUsername = widget.username;
     _savedEmail = widget.initialSettings.email;
     if (widget.initialSettings.birthday.isNotEmpty) {
       _birthday = DateTime.tryParse(widget.initialSettings.birthday);
     }
-  }
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _usernameController.dispose();
-    super.dispose();
   }
 
   String _formatBirthday(DateTime? dt) {
@@ -182,9 +169,7 @@ class _SettingsPageState extends State<SettingsPage> {
         if (mounted) {
           setState(() {
             _savedUsername = updatedUser;
-            _usernameController.text = updatedUser;
             _savedEmail = updated.email;
-            _emailController.text = updated.email;
             _language = updated.language;
             _currency = updated.currency;
             _enableTodoList = updated.enableTodoList;
@@ -217,19 +202,37 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _saveAccountFields() async {
-    if (_isSavingAccount) return;
-    setState(() => _isSavingAccount = true);
-    final ok = await _autoSaveSettings(
-      usernameOverride: _usernameController.text,
-      emailOverride: _emailController.text,
-      showSuccessToast: true,
+  Future<void> _showEditAccountDialog() async {
+    final result = await showDialog(
+      context: context,
+      builder: (_) => _EditAccountDialog(
+        backendBaseUrl: widget.backendBaseUrl,
+        authToken: widget.authToken,
+        initialUsername: _savedUsername,
+        initialEmail: _savedEmail,
+        currentSettings: UserAppSettings(
+          timezone: _timezone,
+          language: _language,
+          email: _savedEmail,
+          birthday: _birthday == null ? '' : _formatBirthday(_birthday),
+          currency: _currency,
+          enableTodoList: _enableTodoList,
+          enablePayroll: _enablePayroll,
+          enableNotifications: _enableNotification,
+          setupComplete: true,
+        ),
+        isJa: _isJa,
+      ),
     );
-    if (mounted) {
+    if (result != null && mounted) {
+      final updated = result['settings'] as UserAppSettings;
+      final updatedUsername = result['username'] as String;
       setState(() {
-        _isSavingAccount = false;
-        if (ok) _isEditingAccount = false;
+        _savedUsername = updatedUsername;
+        _savedEmail = updated.email;
       });
+      widget.onSettingsUpdated(updated);
+      _showSnack(_isJa ? 'アカウント情報を更新しました。' : 'Account info updated.');
     }
   }
 
@@ -377,62 +380,19 @@ class _SettingsPageState extends State<SettingsPage> {
                         letterSpacing: 0.4,
                       ),
                     ),
-                    if (!_isEditingAccount)
-                      TextButton.icon(
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        onPressed: () => setState(() => _isEditingAccount = true),
-                        icon: const Icon(CupertinoIcons.pencil, size: 14, color: appleRed),
-                        label: Text(
-                          _isJa ? '編集' : 'Edit',
-                          style: const TextStyle(color: appleRed, fontSize: 13),
-                        ),
-                      )
-                    else
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          TextButton(
-                            style: TextButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            onPressed: _isSavingAccount
-                                ? null
-                                : () {
-                                    setState(() {
-                                      _usernameController.text = _savedUsername;
-                                      _emailController.text = _savedEmail;
-                                      _isEditingAccount = false;
-                                    });
-                                  },
-                            child: Text(
-                              _isJa ? '取消' : 'Cancel',
-                              style: const TextStyle(color: appleSecondaryLabel, fontSize: 13),
-                            ),
-                          ),
-                          TextButton(
-                            style: TextButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                            onPressed: _isSavingAccount ? null : _saveAccountFields,
-                            child: Text(
-                              _isJa ? '保存' : 'Save',
-                              style: const TextStyle(
-                                color: appleRed,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                        ],
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
+                      onPressed: _showEditAccountDialog,
+                      icon: const Icon(CupertinoIcons.pencil, size: 14, color: appleRed),
+                      label: Text(
+                        _isJa ? '編集' : 'Edit',
+                        style: const TextStyle(color: appleRed, fontSize: 13),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -442,43 +402,17 @@ class _SettingsPageState extends State<SettingsPage> {
                 child: Column(
                   children: [
                     ListTile(
-                      leading: const Icon(CupertinoIcons.person_circle, color: appleRed),
-                      title: _isEditingAccount
-                          ? TextField(
-                              controller: _usernameController,
-                              autofocus: true,
-                              decoration: InputDecoration(
-                                labelText: _isJa ? 'ユーザー名' : 'Username',
-                                isDense: true,
-                                border: InputBorder.none,
-                              ),
-                            )
-                          : Text(_isJa ? 'ユーザー名' : 'Username'),
-                      subtitle: _isEditingAccount
-                          ? null
-                          : Text(_savedUsername, style: const TextStyle(color: appleSecondaryLabel)),
+                      title: Text(_isJa ? 'ユーザー名' : 'Username'),
+                      subtitle: Text(_savedUsername, style: const TextStyle(color: appleSecondaryLabel)),
                     ),
                     const Divider(height: 1, indent: 54, color: appleHairline),
                     ListTile(
                       leading: const Icon(CupertinoIcons.mail, color: appleRed),
-                      title: _isEditingAccount
-                          ? TextField(
-                              controller: _emailController,
-                              keyboardType: TextInputType.emailAddress,
-                              decoration: InputDecoration(
-                                labelText: _isJa ? 'メールアドレス' : 'Email Address',
-                                hintText: 'name@example.com',
-                                isDense: true,
-                                border: InputBorder.none,
-                              ),
-                            )
-                          : Text(_isJa ? 'メールアドレス' : 'Email Address'),
-                      subtitle: _isEditingAccount
-                          ? null
-                          : Text(
-                              _savedEmail.isEmpty ? (_isJa ? '未設定' : 'Not set') : _savedEmail,
-                              style: const TextStyle(color: appleSecondaryLabel),
-                            ),
+                      title: Text(_isJa ? 'メールアドレス' : 'Email Address'),
+                      subtitle: Text(
+                        _savedEmail.isEmpty ? (_isJa ? '未設定' : 'Not set') : _savedEmail,
+                        style: const TextStyle(color: appleSecondaryLabel),
+                      ),
                     ),
                     const Divider(height: 1, indent: 54, color: appleHairline),
                     ListTile(
@@ -982,6 +916,180 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
           style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFF3B30)),
           onPressed: _deleting ? null : _submit,
           child: Text(widget.isJa ? '完全に削除' : 'Delete Forever'),
+        ),
+      ],
+    );
+  }
+}
+
+class _EditAccountDialog extends StatefulWidget {
+  final String backendBaseUrl;
+  final String authToken;
+  final String initialUsername;
+  final String initialEmail;
+  final UserAppSettings currentSettings;
+  final bool isJa;
+
+  const _EditAccountDialog({
+    required this.backendBaseUrl,
+    required this.authToken,
+    required this.initialUsername,
+    required this.initialEmail,
+    required this.currentSettings,
+    required this.isJa,
+  });
+
+  @override
+  State<_EditAccountDialog> createState() => _EditAccountDialogState();
+}
+
+class _EditAccountDialogState extends State<_EditAccountDialog> {
+  late final TextEditingController _usernameCtrl;
+  late final TextEditingController _emailCtrl;
+  bool _submitting = false;
+  String? _errText;
+
+  @override
+  void initState() {
+    super.initState();
+    _usernameCtrl = TextEditingController(text: widget.initialUsername);
+    _emailCtrl = TextEditingController(text: widget.initialEmail);
+  }
+
+  @override
+  void dispose() {
+    _usernameCtrl.dispose();
+    _emailCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_submitting) return;
+    final nextUsername = _usernameCtrl.text.trim();
+    final nextEmail = _emailCtrl.text.trim();
+
+    if (nextUsername.length < 3) {
+      setState(() => _errText = widget.isJa
+          ? 'ユーザー名は3文字以上で入力してください。'
+          : 'Username must be at least 3 characters.');
+      return;
+    }
+    if (nextEmail.isNotEmpty &&
+        !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(nextEmail)) {
+      setState(() => _errText = widget.isJa
+          ? '有効なメールアドレスを入力してください。'
+          : 'Please enter a valid email address.');
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _errText = null;
+    });
+
+    try {
+      final res = await http.put(
+        Uri.parse('${widget.backendBaseUrl}/api/auth/settings'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${widget.authToken}',
+        },
+        body: jsonEncode({
+          'username': nextUsername,
+          'email': nextEmail,
+          'birthday': widget.currentSettings.birthday,
+          'currency': widget.currentSettings.currency,
+          'timezone': widget.currentSettings.timezone,
+          'language': widget.currentSettings.language,
+          'enableTodoList': widget.currentSettings.enableTodoList,
+          'enablePayroll': widget.currentSettings.enablePayroll,
+          'enableNotifications': widget.currentSettings.enableNotifications,
+          'setupComplete': true,
+        }),
+      );
+
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        final Map<String, dynamic> data = res.body.isNotEmpty
+            ? jsonDecode(res.body) as Map<String, dynamic>
+            : <String, dynamic>{};
+        final updated = UserAppSettings.fromJson(data);
+        await updated.saveToCache();
+        final prefs = await SharedPreferences.getInstance();
+        final updatedUser = data['username']?.toString() ?? nextUsername;
+        await prefs.setString('auth_username', updatedUser);
+        if (!mounted) return;
+        Navigator.of(context).pop({
+          'settings': updated,
+          'username': updatedUser,
+        });
+        return;
+      }
+
+      String message = widget.isJa
+          ? 'アカウント情報の更新に失敗しました。'
+          : 'Failed to update account info.';
+      if (res.body.isNotEmpty) {
+        final body = jsonDecode(res.body);
+        if (body is Map<String, dynamic>) {
+          final err = body['error']?.toString();
+          if (err != null && err.isNotEmpty && err != 'Not Found') {
+            message = err;
+          }
+        }
+      }
+      setState(() {
+        _errText = message;
+        _submitting = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errText = widget.isJa ? 'サーバーに接続できませんでした: $e' : 'Network error: $e';
+          _submitting = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.isJa ? 'アカウント情報を編集' : 'Edit Account'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _usernameCtrl,
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: widget.isJa ? 'ユーザー名' : 'Username',
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _emailCtrl,
+            keyboardType: TextInputType.emailAddress,
+            decoration: InputDecoration(
+              labelText: widget.isJa ? 'メールアドレス' : 'Email Address',
+              hintText: 'name@example.com',
+            ),
+          ),
+          if (_errText != null) ...[
+            const SizedBox(height: 10),
+            Text(_errText!, style: const TextStyle(color: Color(0xFFFF3B30), fontSize: 13)),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _submitting ? null : () => Navigator.of(context).pop(null),
+          child: Text(widget.isJa ? 'キャンセル' : 'Cancel'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFF3B30)),
+          onPressed: _submitting ? null : _submit,
+          child: Text(widget.isJa ? '保存' : 'Save'),
         ),
       ],
     );
