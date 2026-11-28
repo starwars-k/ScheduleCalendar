@@ -1734,10 +1734,7 @@ class _CalendarPageState extends State<CalendarPage> {
                                         borderSide: BorderSide.none,
                                       ),
                                     ),
-                                    items: <String> [
-                                      ..._eventTypes,
-                                      if (!_eventTypes.contains('Holiday')) 'Holiday',
-                                    ].map<DropdownMenuItem<String>>((String typeName) {
+                                    items: _eventTypes.map<DropdownMenuItem<String>>((String typeName) {
                                       return DropdownMenuItem<String>(
                                         value: typeName,
                                         child: Row(
